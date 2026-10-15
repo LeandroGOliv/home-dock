@@ -1,0 +1,46 @@
+[
+  {
+    "name": "Lâmpada Exemplo",
+    "id": "00000000000000000000",
+    "key": "0000000000000000",
+    "mac": "00:00:00:00:00:00",
+    "uuid": "0000000000000000",
+    "sn": "0000000000000000",
+    "category": "dj",
+    "product_name": "Smart Lâmpada Wi-Fi RGB+",
+    "product_id": "example0product0",
+    "biz_type": 18,
+    "model": "PSBAM",
+    "sub": false,
+    "icon": "",
+    "mapping": {
+      "20": { "code": "switch_led", "type": "Boolean", "values": {} },
+      "21": {
+        "code": "work_mode",
+        "type": "Enum",
+        "values": { "range": ["white", "colour", "scene", "music"] }
+      },
+      "22": {
+        "code": "bright_value_v2",
+        "type": "Integer",
+        "values": { "min": 10, "max": 1000, "scale": 0, "step": 1 }
+      },
+      "23": {
+        "code": "temp_value_v2",
+        "type": "Integer",
+        "values": { "min": 0, "max": 1000, "scale": 0, "step": 1 }
+      },
+      "24": {
+        "code": "colour_data_v2",
+        "type": "Json",
+        "values": {
+          "h": { "min": 0, "max": 360, "scale": 0, "step": 1, "unit": "" },
+          "s": { "min": 0, "max": 1000, "scale": 0, "step": 1, "unit": "" },
+          "v": { "min": 0, "max": 1000, "scale": 0, "step": 1, "unit": "" }
+        }
+      }
+    },
+    "ip": "192.0.2.10",
+    "version": "3.4"
+  }
+]

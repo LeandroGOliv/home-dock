@@ -1,0 +1,60 @@
+[project]
+name = "homedock"
+version = "0.1.0"
+description = "Windows system-tray app to control Tuya smart-home devices over the local network."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+authors = [{ name = "Leandro Golub de Oliveira" }]
+dependencies = [
+    "tinytuya>=1.17",
+    "PySide6-Essentials>=6.10",
+]
+
+[project.scripts]
+homedock = "homedock.__main__:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4",
+    "pytest-qt>=4.5",
+    "ruff>=0.14",
+    "pre-commit>=4.3",
+    "pyinstaller>=6.16",
+]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/homedock"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "RUF", # ruff-specific
+]
+
+[tool.ruff.lint.pep8-naming]
+# Qt overrides use camelCase (paintEvent, mousePressEvent, ...).
+ignore-names = ["*Event", "sizeHint", "minimumSizeHint"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["scripts"]
+qt_api = "pyside6"
+addopts = "-ra"

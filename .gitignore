@@ -1,0 +1,47 @@
+# --- Secrets & local device data (NEVER commit) ---
+# tinytuya wizard outputs: local keys, device IDs, IPs, cloud credentials
+devices.json
+tuya-raw.json
+snapshot.json
+tinytuya.json
+# only the fictitious example is allowed
+!devices.example.json
+# environment files
+.env
+.env.*
+# local app config, if ever mirrored into the project
+/HomeDock/
+/homedock-data/
+config.local.*
+# logs
+*.log
+logs/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Build (PyInstaller) ---
+build/
+dist/
+*.spec
+!packaging/*.spec
+
+# --- Editors / OS ---
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# --- Claude Code local state ---
+.claude/settings.local.json

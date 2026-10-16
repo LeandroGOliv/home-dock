@@ -19,6 +19,7 @@ class FakeTinyTuyaDevice:
     def __init__(self, dev_id, address, local_key, version):
         self.args = (dev_id, address, local_key, version)
         self.persistent = None
+        self.max_simultaneous_dps = 0
         self.closed = False
         self.sent = []
         FakeTinyTuyaDevice.instances.append(self)
@@ -111,3 +112,59 @@ def test_error_messages_never_contain_the_key_or_ip():
         TinyTuyaLink(SPEC).status()
     assert "192.0.2.10" not in str(info.value)
     assert "key-1" not in str(info.value)
+
+
+def test_defaults_to_protocol_3_4():
+    FakeTinyTuyaDevice.responses = [{"dps": {}}]
+    TinyTuyaLink(DeviceSpec(id="dev-1", name="Sala", local_key="key-1", ip="192.0.2.10")).status()
+    assert FakeTinyTuyaDevice.instances[0].args[3] == 3.4
+
+
+@pytest.mark.parametrize("version", ["v3.4", "3.2", "9"])
+def test_unsupported_version_raises_without_connecting(version):
+    spec = DeviceSpec(id="dev-1", name="Sala", local_key="key-1", ip="192.0.2.10", version=version)
+    with pytest.raises(DeviceError):
+        TinyTuyaLink(spec).status()
+    assert FakeTinyTuyaDevice.instances == []
+
+
+def test_set_values_sends_one_multi_dps_command():
+    FakeTinyTuyaDevice.responses = [{"dps": {"21": "colour"}}]
+    TinyTuyaLink(SPEC).set_values({"21": "colour", "24": "000003e803e8"})
+    assert FakeTinyTuyaDevice.instances[0].sent == [{"21": "colour", "24": "000003e803e8"}]
+
+
+def test_one_dps_at_a_time_fallback_does_not_stick():
+    # tinytuya switches to one DPS per command (1 s apart) for good after a single error.
+    FakeTinyTuyaDevice.responses = [{"dps": {}}]
+    link = TinyTuyaLink(SPEC)
+    link.set_values({"20": True, "21": "white"})
+    (device,) = FakeTinyTuyaDevice.instances
+    device.max_simultaneous_dps = 1
+    FakeTinyTuyaDevice.responses = [{"dps": {}}]
+    link.set_values({"20": True, "21": "white"})
+    assert device.max_simultaneous_dps == 0
+
+
+def test_exception_drops_the_socket_and_reconnects():
+    FakeTinyTuyaDevice.responses = [OSError("reset"), {"dps": {"20": True}}]
+    link = TinyTuyaLink(SPEC)
+    with pytest.raises(DeviceError):
+        link.status()
+    assert link.status() == {"20": True}
+    assert len(FakeTinyTuyaDevice.instances) == 2
+    assert FakeTinyTuyaDevice.instances[0].closed
+
+
+def test_idle_socket_is_reopened():
+    now = [0.0]
+    link = TinyTuyaLink(SPEC, idle_timeout=20.0, clock=lambda: now[0])
+    FakeTinyTuyaDevice.responses = [{"dps": {}}, {"dps": {}}, {"dps": {}}]
+    link.status()
+    now[0] += 19
+    link.status()
+    assert len(FakeTinyTuyaDevice.instances) == 1
+    now[0] += 21
+    link.status()
+    assert len(FakeTinyTuyaDevice.instances) == 2
+    assert FakeTinyTuyaDevice.instances[0].closed

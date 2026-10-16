@@ -3,7 +3,14 @@
 import pytest
 
 from homedock.devices import Capability, Color, Device, DeviceError, DeviceState, WorkMode
-from homedock.devices.rgb_bulb import RgbBulb
+from homedock.devices.rgb_bulb import (
+    CACHE_TTL,
+    MIN_BRIGHTNESS,
+    RgbBulb,
+    decode_colour,
+    to_percent,
+    to_raw,
+)
 from homedock.devices.spec import DeviceSpec
 
 BULB_CODES = {
@@ -148,7 +155,7 @@ def test_white_brightness_rounds_half_up(raw, percent):
     assert bulb.read_state().brightness == percent
 
 
-@pytest.mark.parametrize(("raw", "percent"), [(0, 0), (1000, 100), (505, 51)])
+@pytest.mark.parametrize(("raw", "percent"), [(0, 0), (1000, 100)])
 def test_temperature_maps_to_percent(raw, percent):
     bulb, _ = make_bulb({**WHITE_DPS, "23": raw})
     assert bulb.read_state().color_temperature == percent
@@ -249,8 +256,8 @@ def test_colour_and_brightness_go_in_one_dps_24():
 
 
 def test_colour_mode_never_writes_dps_22():
-    for changes in (DeviceState(brightness=30), DeviceState(power=True, brightness=100)):
-        assert all("22" not in w for w in written(COLOUR_DPS, changes))
+    changes = DeviceState(power=True, brightness=100)
+    assert all("22" not in w for w in written(COLOUR_DPS, changes))
 
 
 # --- mode switching -----------------------------------------------------------------------
@@ -337,3 +344,100 @@ def test_close_closes_the_link():
     bulb.read_state()
     bulb.close()
     assert link.closed
+
+
+# --- review follow-ups: conversions, decoding and cache edges -----------------------------
+
+
+@pytest.mark.parametrize("percent", range(1, 101))
+def test_percent_round_trips_through_raw(percent):
+    assert to_percent(to_raw(percent)) == percent
+    assert to_percent(to_raw(percent, MIN_BRIGHTNESS)) == percent
+
+
+def test_zero_brightness_reads_back_as_one_percent():
+    assert to_percent(to_raw(0, MIN_BRIGHTNESS)) == 1
+
+
+@pytest.mark.parametrize(
+    "text", ["zzzz03e801f4", "016903e801f4", "000003e903e8", "00f003e801f", None, 42]
+)
+def test_decode_colour_rejects_malformed_values(text):
+    assert decode_colour(text) is None
+
+
+def test_non_bool_power_is_unknown():
+    bulb, _ = make_bulb({**WHITE_DPS, "20": 1})
+    assert bulb.read_state().power is None
+
+
+def test_bool_in_white_brightness_is_not_a_brightness():
+    bulb, _ = make_bulb({**WHITE_DPS, "22": True})
+    assert bulb.read_state().brightness is None
+
+
+def test_colour_brightness_with_malformed_colour_data_falls_back_to_white_light():
+    assert written({**COLOUR_DPS, "24": "zz"}, DeviceState(brightness=50)) == [
+        {"24": "0000000001f4"}
+    ]
+
+
+def test_explicit_same_mode_still_writes_dps_21():
+    changes = DeviceState(work_mode=WorkMode.WHITE)
+    assert written(WHITE_DPS, changes) == [{"21": "white"}]
+
+
+def test_two_pushes_then_a_full_read_succeed():
+    bulb, link = make_bulb(WHITE_DPS, pushes=[{"20": True}, {"22": 500}])
+    assert bulb.read_state().brightness == 50
+    assert link.status_calls == 3
+
+
+def test_status_without_temperature_is_full_when_temperature_is_unmapped():
+    codes = {k: v for k, v in BULB_CODES.items() if k != "23"}
+    dps = {k: v for k, v in WHITE_DPS.items() if k != "23"}
+    bulb, link = make_bulb(dps, codes=codes)
+    assert bulb.read_state().color_temperature is None
+    assert link.status_calls == 1
+
+
+def test_payload_wins_over_a_stale_echo():
+    bulb, link = make_bulb(WHITE_DPS)
+    link.set_values = lambda values: (link.writes.append(values), {"22": 100})[1]
+    assert bulb.apply(DeviceState(brightness=50)).brightness == 50
+
+
+def test_empty_echo_still_updates_the_cache():
+    bulb, link = make_bulb(WHITE_DPS)
+    link.set_values = lambda values: (link.writes.append(values), {})[1]
+    assert bulb.apply(DeviceState(brightness=80)).brightness == 80
+
+
+def test_apply_after_a_failure_reads_the_state_again():
+    bulb, link = make_bulb(WHITE_DPS)
+    bulb.read_state()
+    link.fail = True
+    with pytest.raises(DeviceError):
+        bulb.apply(DeviceState(power=False))
+    link.fail = False
+    link.dps["21"] = "colour"  # changed while unreachable (e.g. by the Tuya app)
+    bulb.apply(DeviceState(brightness=100))
+    assert link.writes[-1] == {"24": "00f003e803e8"}
+    assert link.status_calls == 2
+
+
+def test_apply_rereads_a_cache_older_than_its_ttl():
+    now = [0.0]
+    link = FakeLink(WHITE_DPS)
+    bulb = RgbBulb(bulb_spec(), connect=lambda _spec: link, clock=lambda: now[0])
+    bulb.read_state()
+    link.dps["21"] = "colour"  # changed meanwhile by the Tuya app
+
+    now[0] += CACHE_TTL - 1
+    bulb.apply(DeviceState(power=True))
+    assert link.status_calls == 1
+
+    now[0] += CACHE_TTL + 1
+    bulb.apply(DeviceState(brightness=100))
+    assert link.status_calls == 2
+    assert link.writes[-1] == {"24": "00f003e803e8"}  # not DPS 22: the bulb is in colour

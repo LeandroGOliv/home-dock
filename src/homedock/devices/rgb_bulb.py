@@ -7,6 +7,7 @@ confirmed on real bulbs by ``scripts/diagnose.py`` (see CLAUDE.md "Device / DPS 
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -40,6 +41,9 @@ MODES = {WorkMode.WHITE: "white", WorkMode.COLOR: "colour"}
 RAW_MAX = 1000  # full scale of brightness, saturation, temperature and V
 MIN_BRIGHTNESS = 10  # dimmest raw brightness (white DPS and colour V)
 READ_ATTEMPTS = 3
+# The Tuya app or a power cut may change the bulb behind our back: re-read a cache this old
+# (seconds) before writing, so the mode-dependent DPS choice is never made on stale data.
+CACHE_TTL = 10.0
 
 
 # --- pure conversions ---------------------------------------------------------------------
@@ -75,8 +79,9 @@ def state_from_dps(dps: dict[str, Any]) -> DeviceState:
     mode = next((m for m, raw in MODES.items() if raw == dps.get(MODE_DP)), None)
     colour = decode_colour(dps.get(COLOUR_DP))
     brightness = None
-    if mode is WorkMode.WHITE and isinstance(dps.get(WHITE_BRIGHTNESS_DP), int):
-        brightness = to_percent(dps[WHITE_BRIGHTNESS_DP])
+    white_brightness = dps.get(WHITE_BRIGHTNESS_DP)
+    if mode is WorkMode.WHITE and _is_int(white_brightness):
+        brightness = to_percent(white_brightness)
     elif mode is WorkMode.COLOR and colour is not None:
         brightness = to_percent(colour[2])
     temperature = dps.get(TEMPERATURE_DP)
@@ -85,8 +90,12 @@ def state_from_dps(dps: dict[str, Any]) -> DeviceState:
         work_mode=mode,
         brightness=brightness,
         color_hsv=Color(colour[0], to_percent(colour[1])) if colour else None,
-        color_temperature=to_percent(temperature) if isinstance(temperature, int) else None,
+        color_temperature=to_percent(temperature) if _is_int(temperature) else None,
     )
+
+
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def target_mode(changes: DeviceState, current: WorkMode | None) -> WorkMode | None:
@@ -122,7 +131,8 @@ def build_payload(changes: DeviceState, dps: dict[str, Any]) -> dict[str, Any]:
     elif mode is WorkMode.COLOR and (
         changes.color_hsv is not None or changes.brightness is not None
     ):
-        hue, saturation, value = decode_colour(dps.get(COLOUR_DP)) or (0, RAW_MAX, RAW_MAX)
+        # Unknown current colour: fall back to white light rather than a saturated hue.
+        hue, saturation, value = decode_colour(dps.get(COLOUR_DP)) or (0, 0, RAW_MAX)
         if changes.color_hsv is not None:
             hue, saturation = changes.color_hsv.hue, to_raw(changes.color_hsv.saturation)
         if changes.brightness is not None:
@@ -139,7 +149,12 @@ class RgbBulb:
 
     type = DeviceType.RGB_BULB
 
-    def __init__(self, spec: DeviceSpec, connect: LinkFactory = connect_tinytuya) -> None:
+    def __init__(
+        self,
+        spec: DeviceSpec,
+        connect: LinkFactory = connect_tinytuya,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self.id = spec.id
         self.name = spec.name
         self.capabilities = self._capabilities(spec)
@@ -148,6 +163,8 @@ class RgbBulb:
         self._connect = connect
         self._link: TuyaLink | None = None
         self._dps: dict[str, Any] = {}
+        self._clock = clock
+        self._synced_at = 0.0
         self._lock = threading.Lock()
 
     @staticmethod
@@ -176,12 +193,13 @@ class RgbBulb:
     def apply(self, changes: DeviceState) -> DeviceState:
         changes = changes.restricted_to(self.capabilities)
         with self._lock:
-            if not self._has_full_state():
+            if not self._has_full_state() or self._clock() - self._synced_at > CACHE_TTL:
                 self._refresh()
             payload = build_payload(changes, self._dps)
             if payload:
                 echoed = self._io(lambda link: link.set_values(payload))
-                # The bulb echoes writes exactly; what was just sent wins over stale pushes.
+                # On a persistent socket the reply may be an older queued push rather than
+                # the echo of this write, so merge it first and let the payload win.
                 self._dps.update(echoed)
                 self._dps.update(payload)
             return state_from_dps(self._dps)
@@ -207,9 +225,11 @@ class RgbBulb:
             dps = self._io(lambda link: link.status())
             self._dps.update(dps)
             if self._has_full_state(dps):
+                self._synced_at = self._clock()
                 return
         if not self._has_full_state():
             raise DeviceError(f"incomplete status after {READ_ATTEMPTS} reads")
+        self._synced_at = self._clock()
 
     def _io(self, operation: Callable[[TuyaLink], dict[str, Any]]) -> dict[str, Any]:
         if self._link is None:
@@ -217,7 +237,9 @@ class RgbBulb:
         try:
             result = operation(self._link)
         except DeviceError:
+            # The bulb may have changed meanwhile (reconnect, power cut): forget the cache.
             self.online = False
+            self._dps.clear()
             raise
         self.online = True
         return result

@@ -1,5 +1,7 @@
 # HomeDock
 
+[![CI](https://github.com/LeandroGOLiv/home-dock/actions/workflows/ci.yml/badge.svg)](https://github.com/LeandroGOLiv/home-dock/actions/workflows/ci.yml)
+
 HomeDock é um app para Windows que fica na **bandeja do sistema** (perto do relógio) e
 controla dispositivos de casa inteligente **Tuya** diretamente pela **rede local**, sem
 passar pela nuvem. Ele usa a biblioteca [tinytuya](https://github.com/jasonacox/tinytuya).

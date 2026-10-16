@@ -12,13 +12,29 @@ from homedock.devices.base import (
     DeviceType,
     WorkMode,
 )
+from homedock.devices.registry import (
+    DeviceCatalog,
+    Driver,
+    DriverRegistry,
+    UnsupportedDevice,
+    UnsupportedReason,
+    default_registry,
+)
+from homedock.devices.spec import DeviceSpec
 
 __all__ = [
     "Capability",
     "Color",
     "Device",
+    "DeviceCatalog",
     "DeviceError",
+    "DeviceSpec",
     "DeviceState",
     "DeviceType",
+    "Driver",
+    "DriverRegistry",
+    "UnsupportedDevice",
+    "UnsupportedReason",
     "WorkMode",
+    "default_registry",
 ]

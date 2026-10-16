@@ -34,29 +34,60 @@ Dependencies point downwards only. `ui` talks to `core`; `core` uses `devices` a
 
 ## Device layer
 
+Modules: `base.py` (generic model), `spec.py` (wizard entry), `tuya.py` (tinytuya
+transport), `rgb_bulb.py` (bulb driver, the only place with bulb DPS), `registry.py`
+(driver selection), `fake.py` (in-memory device for tests).
+
 - `DeviceType` — e.g. `RGB_BULB` (later `AIR_CONDITIONER`).
-- `Capability` — `POWER`, `BRIGHTNESS`, `COLOR_HSV`, `COLOR_TEMPERATURE`, `WORK_MODE`
-  (later `TEMPERATURE_SETPOINT`, `FAN_SPEED`, `HVAC_MODE`, …).
-- `DeviceState` — mapping `Capability → value` in **normalised, device-independent units**
-  (e.g. brightness 0–100 %, hue 0–360°, saturation 0–100 %, colour temperature 0–100 %
-  warm→cold, work mode `white`/`colour`).
-- `Device` (protocol) — `id`, `name`, `type`, `capabilities`, `read_state()`,
-  `apply(changes: DeviceState)`, `online`.
+- `Capability` — `POWER`, `WORK_MODE`, `BRIGHTNESS`, `COLOR_HSV`, `COLOR_TEMPERATURE`
+  (later `TEMPERATURE_SETPOINT`, `FAN_SPEED`, `HVAC_MODE`, …). Each value is also the name
+  of a `DeviceState` field, so generic code can read/write state by capability.
+- `DeviceState` — frozen dataclass with one optional field per capability, in
+  **normalised, device-independent units**: `power` bool, `work_mode` `WorkMode.WHITE` /
+  `WorkMode.COLOR`, `brightness` 0–100 %, `color_hsv` `Color(hue 0–360°, saturation
+  0–100 %)`, `color_temperature` 0–100 % (warm→cold). `None` means unknown/unchanged, so
+  the same type is a full state, a partial change or a scene entry. Helpers:
+  `capabilities`, `get()`, `restricted_to()`, `merged()`. Out-of-range values raise.
+- `Device` (protocol) — `id`, `name`, `type`, `capabilities`, `online`, `read_state()`,
+  `apply(changes) -> DeviceState`. Both I/O methods block and raise `DeviceError`;
+  unsupported capabilities in `changes` are skipped silently.
+- `DeviceSpec` — one wizard entry (id, name, local key, IP, version, category, DPS codes);
+  its `repr` masks the ID/IP and never shows the key.
+- `TuyaLink` — raw DPS transport. `TinyTuyaLink` opens a **persistent socket lazily**
+  (protocol 3.4 negotiates a session key per TCP connection), turns tinytuya `Err`
+  responses and exceptions into `DeviceError` (without the library message, which may
+  contain the IP) and drops/reopens the socket after any error and after 20 s idle (Tuya
+  devices drop idle connections). It accepts protocol versions 3.1/3.3/3.4/3.5 (default
+  3.4) and undoes tinytuya's sticky "one DPS per command" fallback after every write.
 - A driver translates normalised values ↔ DPS. For the RGB bulb:
   - power → DPS 20; mode → DPS 21;
-  - brightness → DPS 22 in white mode, **V of DPS 24** in colour mode;
-  - colour temperature → DPS 23; hue/saturation → DPS 24 (`HHHHSSSSVVVV` hex);
+  - brightness → DPS 22 in white mode, **V of DPS 24** in colour mode (raw = % × 10,
+    minimum 10); colour temperature → DPS 23; hue/saturation → DPS 24
+    (`HHHHSSSSVVVV` hex);
   - turning off/on touches **only DPS 20** (the bulb keeps mode/colour/brightness);
-  - DPS 22 must never be sent in colour mode — the bulb would switch to white;
+  - target mode: an explicit `work_mode` wins; otherwise a colour change implies colour
+    mode and a temperature change implies white mode. Only the DPS of the target mode are
+    written — DPS 22/23 never in colour mode, DPS 24 never in white mode — because writing
+    them switches the bulb's mode. Values for the other mode are dropped;
+  - mode and values go in one `set_multiple_values` call (verified on hardware);
+  - the driver keeps a DPS cache: `read_state()` merges the **partial status pushes** a
+    persistent socket may return and retries until a full status arrives; `apply()`
+    re-reads first when the cache is empty or older than 10 s (the Tuya app or a power
+    cut may have changed the mode), then merges the reply and what was written (the
+    payload wins: the reply may be an older queued push); any `DeviceError` clears it;
+  - a lock serialises I/O per device (devices accept one TCP client at a time);
   - DPS 33/34 (power-loss behaviour) are read for diagnostics only (33 is not reported
     by the PSBAM bulbs).
   - DPS/ranges/protocol version confirmed by `scripts/diagnose.py` (see CLAUDE.md
     "Device / DPS notes").
-- Connections: protocol 3.4 negotiates a session key per TCP connection, so the driver
-  keeps a persistent socket per device for latency and **merges the partial status pushes**
-  it receives into its state cache.
-- Driver selection: a registry maps tinytuya `category` (and/or DPS signature) to a driver;
-  unknown devices are listed as unsupported, not crashed on.
+- Driver selection: `DriverRegistry.load(entries)` builds one device per wizard entry by
+  tinytuya `category` + DPS signature (the RGB bulb needs category `dj` and the v2 codes on
+  DPS 20/21/22/24; DPS 23 adds `COLOR_TEMPERATURE`). Loading never connects. Invalid
+  entries and devices without a driver become `UnsupportedDevice` (reason
+  `invalid_entry` / `unknown_type`), never an exception.
+- `homedock.masking` (layer-independent): `mask()`, `redact()` and `RedactingFilter` for
+  logs. A test guards that no DPS code, `tinytuya` or driver module is referenced outside
+  `devices/`.
 
 ## Core
 

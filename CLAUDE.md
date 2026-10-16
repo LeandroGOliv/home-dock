@@ -128,7 +128,10 @@ bulbs before being relied upon** — never assume.
 1. Work on **one issue at a time**. Never commit to `main`.
 2. Branch `issue-<n>-<slug>` from an up-to-date `main`.
 3. Commits follow **Conventional Commits** in English (`feat(ui): add hue ring widget`);
-   enforced by the commit-msg hook.
+   enforced by the commit-msg hook. Split the issue into **logical commits** that are
+   reviewable on their own — e.g. tooling/config, each unit of behaviour with its tests,
+   docs — never one commit mixing everything, nor dozens of trivial ones. Each commit
+   should leave tests and lint green.
 4. Before finishing: `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`,
    `uv run pre-commit run --all-files` — all green.
 5. Push the branch and open a PR (title = Conventional Commit, body in pt-BR with

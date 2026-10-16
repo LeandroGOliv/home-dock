@@ -129,11 +129,17 @@ class Session:
         self.sleep = sleep
         self.log = log
 
-    def read(self) -> dict[str, Any]:
-        response = self.device.status()
-        if not isinstance(response, dict) or "dps" not in response:
-            raise DiagnosticError(f"status failed: {describe_error(response)}")
-        return {str(k): v for k, v in response["dps"].items()}
+    def read(self, attempts: int = 3) -> dict[str, Any]:
+        """Return the full status; bulbs may answer with a partial push after a write."""
+        for _ in range(attempts):
+            response = self.device.status()
+            if not isinstance(response, dict) or "dps" not in response:
+                raise DiagnosticError(f"status failed: {describe_error(response)}")
+            dps = {str(k): v for k, v in response["dps"].items()}
+            if all(k in dps for k in STATE_DPS):
+                return dps
+            self.sleep(self.settle)
+        raise DiagnosticError(f"partial status after {attempts} attempts: {sorted(dps)}")
 
     def write(self, values: dict[str, Any], label: str) -> dict[str, Any]:
         self.log(f"    -> {label}: {values}")
@@ -298,7 +304,8 @@ def connect(entry: dict[str, Any], timeout: float) -> tuple[Any, str, dict[str, 
         device = tinytuya.Device(entry["id"], entry["ip"], entry["key"], version=float(version))
         device.set_socketTimeout(timeout)
         device.set_socketRetryLimit(1)
-        device.set_socketPersistent(True)
+        # A fresh connection per call returns the full status instead of queued partial pushes.
+        device.set_socketPersistent(False)
         response = device.status()
         if isinstance(response, dict) and "dps" in response:
             return device, version, {str(k): v for k, v in response["dps"].items()}

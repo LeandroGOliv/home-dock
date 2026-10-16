@@ -156,3 +156,25 @@ def test_failed_status_raises():
 
     with pytest.raises(DiagnosticError, match="905"):
         session_for(OfflineBulb()).read()
+
+
+def test_partial_status_is_retried_until_complete():
+    class PushThenFullBulb(FakeBulb):
+        calls = 0
+
+        def status(self):
+            self.calls += 1
+            return {"dps": {"20": True}} if self.calls == 1 else super().status()
+
+    bulb = PushThenFullBulb()
+    assert session_for(bulb).read() == bulb.dps
+    assert bulb.calls == 2
+
+
+def test_status_that_stays_partial_raises():
+    class PartialBulb(FakeBulb):
+        def status(self):
+            return {"dps": {"20": True}}
+
+    with pytest.raises(DiagnosticError, match="partial status"):
+        session_for(PartialBulb()).read()

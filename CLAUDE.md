@@ -42,6 +42,8 @@ uv run homedock                                            # run the app
 uv run pytest                                              # tests
 uv run ruff check . ; uv run ruff format --check .         # lint / format check
 uv run pre-commit run --all-files                          # every hook
+uv run python scripts/diagnose.py --dry-run                # read real bulbs (no changes)
+uv run python scripts/diagnose.py --only 1 --tests power   # exercise one bulb (restores state)
 uv run pyinstaller packaging/HomeDock.spec                 # build dist\HomeDock.exe
 ```
 
@@ -83,23 +85,31 @@ device IDs, IPs of the home network, wizard dumps, logs, local configs.
 
 ## Device / DPS notes
 
-Expected for the Positivo bulb model **PSBAM** (category `dj`, protocol **3.4**), taken
-from the wizard mapping. **Must be confirmed by the diagnostics script on the real
-bulbs before being relied upon** — never assume.
+Positivo bulb model **PSBAM** (category `dj`, protocol **3.4**). **Confirmed on both
+real bulbs** with `scripts/diagnose.py` (2026-10-15, issue #3). Re-run it for any new
+model — never assume.
 
-| DPS | Code | Type / range |
-|---|---|---|
-| 20 | `switch_led` | bool |
-| 21 | `work_mode` | `white` / `colour` / `scene` / `music` |
-| 22 | `bright_value_v2` | int 10–1000 (white-mode brightness) |
-| 23 | `temp_value_v2` | int 0–1000 (0 = warm, 1000 = cold) |
-| 24 | `colour_data_v2` | 12-hex string `HHHHSSSSVVVV`: H 0–360, S 0–1000, V 0–1000 |
-| 33 | `power_memory` | raw — behaviour after mains power loss (read-only for us) |
-| 34 | `do_not_disturb` | bool — don't turn on after a power outage (read-only for us) |
+| DPS | Code | Type / range | Confirmed |
+|---|---|---|---|
+| 20 | `switch_led` | bool | ✔ |
+| 21 | `work_mode` | `white` / `colour` / `scene` / `music` | ✔ white, colour |
+| 22 | `bright_value_v2` | int 10–1000 (white-mode brightness) | ✔ 10, 500, 1000 |
+| 23 | `temp_value_v2` | int 0–1000 (0 = warm, 1000 = cold) | ✔ 0, 500, 1000 |
+| 24 | `colour_data_v2` | 12-hex string `HHHHSSSSVVVV`: H 0–360, S 0–1000, V 0–1000 | ✔ |
+| 25 | `scene_data_v2` | hex string, built-in scenes | reported, unused |
+| 26 | `countdown_1` | int seconds | reported, unused |
+| 33 | `power_memory` | raw — behaviour after mains power loss | **not reported** in status |
+| 34 | `do_not_disturb` | bool — don't turn on after a power outage | reported, read-only for us |
 
-- Brightness depends on mode: white mode → DPS 22; colour mode → the **V** of DPS 24. One
-  slider in the UI, different commands.
-- Power on/off sends **only DPS 20**; mode/colour/brightness are kept by the bulb.
+- Brightness depends on mode: white mode → DPS 22; colour mode → the **V** of DPS 24
+  (changing V leaves DPS 22 untouched). One slider in the UI, different commands.
+- **Writing DPS 22 while in colour mode switches the bulb to white mode** (DPS 24 is
+  kept). The driver must never send DPS 22 in colour mode.
+- Power on/off sends **only DPS 20**; DPS 21–24 are preserved across off/on (verified).
+- Every write is read back exactly as sent (no rounding).
+- With a **persistent socket**, `status()` may return the bulb's queued *partial* push
+  (only the DPS that just changed). Either merge pushes into a state cache or read with
+  a fresh connection; never treat a partial dict as the full state.
 - Device I/O never blocks the UI thread (workers/threads). Group commands run **in
   parallel**. Slider and ring drags are debounced/throttled.
 - Read the real device state when the flyout opens. Offline / IP change → show status and

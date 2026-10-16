@@ -80,6 +80,19 @@ O wizard cria na pasta `tuya-wizard` os arquivos `devices.json`, `tinytuya.json`
    (crie a pasta `HomeDock` se não existir).
 2. No HomeDock, abra **Gerenciar grupos e lâmpadas → Recarregar dispositivos**.
 
+## Testar a conexão (opcional)
+
+Para conferir se o HomeDock consegue falar com cada lâmpada, rode na pasta do projeto:
+
+```powershell
+uv run python scripts/diagnose.py --dry-run
+```
+
+Ele só **lê** o estado de cada lâmpada (IDs e IPs aparecem mascarados). Sem `--dry-run`,
+o script também testa liga/desliga, modo branco, cores e brilho — as lâmpadas piscam e
+mudam de cor por cerca de 1 minuto cada — e no fim volta cada uma ao estado em que estava.
+Use `--only 1` para testar só a primeira lâmpada e `--tests power` para um teste só.
+
 ## IPs vazios
 
 Se o wizard rodar fora da rede de casa (ou sem o *poll*), o campo `ip` de cada

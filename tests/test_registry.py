@@ -69,3 +69,15 @@ def test_unsupported_repr_masks_the_id():
     entry = {"id": "bf1a2b3c4d5e6f7a8b9c", "key": "key-1", "category": "cz"}
     (unsupported,) = default_registry().load([entry], connect=no_network).unsupported
     assert "bf1a2b3c4d5e6f7a8b9c" not in repr(unsupported)
+
+
+def test_load_logs_only_masked_ids(caplog):
+    entries = [
+        {"id": "bf1a2b3c4d5e6f7a8b9c", "key": "key-1", "category": "cz"},
+        {"id": "cf1a2b3c4d5e6f7a8b9d"},
+    ]
+    with caplog.at_level("DEBUG", logger="homedock"):
+        default_registry().load(entries, connect=no_network)
+    assert caplog.records
+    assert "bf1a2b3c4d5e6f7a8b9c" not in caplog.text
+    assert "cf1a2b3c4d5e6f7a8b9d" not in caplog.text

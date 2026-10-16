@@ -50,3 +50,11 @@ def test_repr_never_shows_key_id_or_ip():
     assert "bf1a2b3c4d5e6f7a8b9c" not in text
     assert "192.0.2.77" not in text
     assert "bf…9c" in text
+
+
+@pytest.mark.parametrize(
+    "mapping", [["20"], {"20": "switch_led"}, {"20": {"type": "Boolean"}}, None]
+)
+def test_from_wizard_ignores_malformed_mapping(mapping):
+    spec = DeviceSpec.from_wizard({"id": "dev-1", "key": "key-1", "mapping": mapping})
+    assert spec.dps_codes == {}

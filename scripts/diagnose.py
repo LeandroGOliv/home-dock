@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 import time
@@ -70,7 +71,7 @@ def load_devices(path: Path) -> list[dict[str, Any]]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise DiagnosticError(f"devices file not found: {path}") from exc
+        raise DiagnosticError(f"devices file not found: {path.name}") from exc
     if not isinstance(data, list):
         raise DiagnosticError("devices file must contain a JSON list")
     return [d for d in data if isinstance(d, dict) and d.get("id") and d.get("key")]
@@ -294,6 +295,9 @@ def run_tests(session: Session, tests: Iterable[str]) -> list[Check]:
 def connect(entry: dict[str, Any], timeout: float) -> tuple[Any, str, dict[str, Any]]:
     """Try the configured protocol version first, then the others."""
     import tinytuya  # imported lazily so the pure helpers stay importable without it
+
+    # tinytuya DEBUG logs include the local key: never call tinytuya.set_debug() here.
+    logging.getLogger("tinytuya").setLevel(logging.INFO)
 
     if not entry.get("ip"):
         raise DiagnosticError("no IP in devices.json; run `python -m tinytuya scan` at home")

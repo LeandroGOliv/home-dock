@@ -1,0 +1,147 @@
+# CLAUDE.md
+
+Guidance for Claude Code (and any AI agent) working in this repository.
+
+## Overview
+
+HomeDock is a Windows system-tray app that controls Tuya smart-home devices over the
+**local network only** (no cloud), using `tinytuya`. v1 targets Positivo Casa Inteligente
+RGB Wi-Fi bulbs (Tuya white label), N devices, user-defined groups and scenes. The
+architecture must stay extensible to other device types (e.g. air conditioners) without
+touching the core.
+
+- Architecture details: [docs/architecture.md](docs/architecture.md)
+- End-user setup (pt-BR): [README.md](README.md), [docs/configuracao.md](docs/configuracao.md)
+- UI references: [docs/ui/](docs/ui/) — PNGs rendered at 2x (720 px wide = 360 px flyout).
+  Use them for layout, colors and sizes; they are visual references, not code.
+
+## Stack
+
+Python 3.12+ (dev on 3.14) · tinytuya · PySide6-Essentials (tray + UI) · PyInstaller
+(`HomeDock.exe`) · uv (env, lockfile) · ruff (lint/format) · pytest + pytest-qt ·
+pre-commit (ruff, gitleaks, block-tuya-secrets, conventional-pre-commit).
+
+## Layout
+
+```
+src/homedock/
+  devices/   generic Device/capability interface + concrete drivers (DPS live ONLY here)
+  core/      control service, groups, scenes (generic devices only)
+  storage/   config/persistence under %APPDATA%\HomeDock
+  ui/        tray, flyout pages, per-type control panels, custom QPainter widgets
+scripts/     dev tooling (diagnostics, pre-commit hooks)
+tests/       pytest suite (no network, no real devices)
+```
+
+## Commands
+
+```powershell
+uv sync                                                    # install / update env
+uv run pre-commit install --hook-type pre-commit --hook-type commit-msg
+uv run homedock                                            # run the app
+uv run pytest                                              # tests
+uv run ruff check . ; uv run ruff format --check .         # lint / format check
+uv run pre-commit run --all-files                          # every hook
+uv run pyinstaller packaging/HomeDock.spec                 # build dist\HomeDock.exe
+```
+
+## Architecture rules (non-negotiable)
+
+- Layers: **devices → core (control service, groups, scenes) → storage → ui**. Lower
+  layers never import higher ones.
+- The device layer exposes a **generic interface**: each device has a `type` and a set of
+  **capabilities** (`power`, `brightness`, `color_hsv`, `color_temperature`; later
+  `temperature_setpoint`, `fan_speed`, `hvac_mode`, …).
+- The RGB bulb is just the first implementation. **All DPS numbers, codes, ranges and
+  encodings live inside the bulb driver** — never in core, storage or ui.
+- Groups, scenes, the target selector and the tray menu work on generic devices. Never
+  import or special-case the bulb driver outside `devices/`.
+- Groups may be mixed (bulb + AC). Commanding a group sends each device only the commands
+  its capabilities support; others are skipped silently.
+- The control panel is chosen by device type/capabilities through a registry, so a new
+  device type brings its own panel.
+- Do **not** implement air-conditioner support until its backlog issue is scheduled.
+- The UI wording is bulb-focused in v1 ("Todas as lâmpadas", "Lâmpadas"). Future device
+  types will get their own tabs; the "all" automatic group is **per device type**.
+
+## Security rules (mandatory)
+
+Nothing sensitive may reach GitHub (the repo is **public**): credentials, local keys,
+device IDs, IPs of the home network, wizard dumps, logs, local configs.
+
+- Never create, copy or read secrets into the repo tree. Real data lives only in
+  `%APPDATA%\HomeDock\` (app data) and `%USERPROFILE%\tuya-wizard\` (wizard outputs).
+- Only `devices.example.json` (fictitious values, IPs from 192.0.2.0/24) is committed.
+- Never print local keys or credentials — in logs, tests, scripts, PR text or chat. Mask
+  them (e.g. `ab…ef`). Device IDs and IPs are also masked in logs.
+- The app writes data **only** to `%APPDATA%\HomeDock\`, never to the repo folder.
+- Tests never use real devices or real secrets; use fakes and fictitious values.
+- Before every commit run `git status` and inspect the staged file list. Never use
+  `git add -A`/`git add .` blindly. Never bypass hooks (`--no-verify`).
+- `block-tuya-secrets` compares staged files with the real local values; gitleaks covers
+  generic secrets. If a hook blocks a commit, fix the cause — do not work around it.
+
+## Device / DPS notes
+
+Expected for the Positivo bulb model **PSBAM** (category `dj`, protocol **3.4**), taken
+from the wizard mapping. **Must be confirmed by the diagnostics script on the real
+bulbs before being relied upon** — never assume.
+
+| DPS | Code | Type / range |
+|---|---|---|
+| 20 | `switch_led` | bool |
+| 21 | `work_mode` | `white` / `colour` / `scene` / `music` |
+| 22 | `bright_value_v2` | int 10–1000 (white-mode brightness) |
+| 23 | `temp_value_v2` | int 0–1000 (0 = warm, 1000 = cold) |
+| 24 | `colour_data_v2` | 12-hex string `HHHHSSSSVVVV`: H 0–360, S 0–1000, V 0–1000 |
+| 33 | `power_memory` | raw — behaviour after mains power loss (read-only for us) |
+| 34 | `do_not_disturb` | bool — don't turn on after a power outage (read-only for us) |
+
+- Brightness depends on mode: white mode → DPS 22; colour mode → the **V** of DPS 24. One
+  slider in the UI, different commands.
+- Power on/off sends **only DPS 20**; mode/colour/brightness are kept by the bulb.
+- Device I/O never blocks the UI thread (workers/threads). Group commands run **in
+  parallel**. Slider and ring drags are debounced/throttled.
+- Read the real device state when the flyout opens. Offline / IP change → show status and
+  try to rediscover via tinytuya scan.
+
+## Code conventions
+
+- Code, identifiers, comments, docstrings, commit messages, PR titles and AI files
+  (CLAUDE.md, `docs/architecture.md`, `.claude/agents/`) in **English**.
+- Everything the end user sees — UI strings, README, `docs/configuracao.md` — in
+  **pt-BR**. GitHub issue and PR bodies in pt-BR.
+- UI strings centralised in one module (no scattered literals).
+- Type hints everywhere; small modules; dataclasses/enums for domain types.
+- ruff is the source of truth for style (line length 100).
+
+## Testing
+
+- Core (capabilities, DPS mapping, groups, scenes, persistence): unit tests with an
+  in-memory **fake device**, test-first (TDD).
+- Widget math (angle ↔ hue/temperature, HSV ↔ hex) as pure functions with unit tests.
+- UI: `pytest-qt` only where it pays off (e.g. dragging a marker emits the right value).
+- Real hardware: only the diagnostics script and the manual validation step of each issue.
+
+## Workflow
+
+1. Work on **one issue at a time**. Never commit to `main`.
+2. Branch `issue-<n>-<slug>` from an up-to-date `main`.
+3. Commits follow **Conventional Commits** in English (`feat(ui): add hue ring widget`);
+   enforced by the commit-msg hook.
+4. Before finishing: `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`,
+   `uv run pre-commit run --all-files` — all green.
+5. Push the branch and open a PR (title = Conventional Commit, body in pt-BR with
+   `Closes #<n>` and the acceptance-criteria checklist).
+6. **Stop** and wait for the user to validate. The user reviews and merges — never merge.
+
+## Agents
+
+Project subagents live in `.claude/agents/`:
+
+- `test-engineer` — designs/writes/reviews tests, drives TDD on the core.
+- `security-auditor` — audits the diff before a PR for secrets, unsafe logging, staged
+  sensitive files.
+
+Each issue has a "Agentes sugeridos" section; a new agent proposed there is created as
+part of that issue.

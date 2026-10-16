@@ -47,9 +47,14 @@ Dependencies point downwards only. `ui` talks to `core`; `core` uses `devices` a
   - brightness → DPS 22 in white mode, **V of DPS 24** in colour mode;
   - colour temperature → DPS 23; hue/saturation → DPS 24 (`HHHHSSSSVVVV` hex);
   - turning off/on touches **only DPS 20** (the bulb keeps mode/colour/brightness);
-  - DPS 33/34 (power-loss behaviour) are read for diagnostics only.
-  - Exact DPS/ranges/protocol version are confirmed by `scripts/diagnose.py` (see
-    CLAUDE.md "Device / DPS notes").
+  - DPS 22 must never be sent in colour mode — the bulb would switch to white;
+  - DPS 33/34 (power-loss behaviour) are read for diagnostics only (33 is not reported
+    by the PSBAM bulbs).
+  - DPS/ranges/protocol version confirmed by `scripts/diagnose.py` (see CLAUDE.md
+    "Device / DPS notes").
+- Connections: protocol 3.4 negotiates a session key per TCP connection, so the driver
+  keeps a persistent socket per device for latency and **merges the partial status pushes**
+  it receives into its state cache.
 - Driver selection: a registry maps tinytuya `category` (and/or DPS signature) to a driver;
   unknown devices are listed as unsupported, not crashed on.
 

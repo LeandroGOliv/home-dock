@@ -1,4 +1,5 @@
 import logging
+import sys
 
 import pytest
 
@@ -43,3 +44,59 @@ def test_redacting_filter_masks_message_and_arguments():
 
     assert log_filter.filter(record) is True
     assert record.getMessage() == "key a1…b8 for lamp"
+
+
+def make_record(msg, args=(), exc_info=None):
+    return logging.LogRecord("homedock", logging.ERROR, __file__, 1, msg, args, exc_info)
+
+
+def test_redacting_filter_masks_any_ipv4_address():
+    # IPs found by a LAN scan are not known in advance.
+    record = make_record("found %s and %s", ("192.0.2.33", "198.51.100.7"))
+    RedactingFilter().filter(record)
+    assert record.getMessage() == "found 19…33 and 19….7"
+
+
+def test_redacting_filter_keeps_version_numbers():
+    record = make_record("protocol %s, app %s", ("3.4", "0.1.0"))
+    RedactingFilter().filter(record)
+    assert record.getMessage() == "protocol 3.4, app 0.1.0"
+
+
+def test_redacting_filter_masks_the_exception_text():
+    try:
+        raise RuntimeError("bad key a1b2c3d4e5f6a7b8 from 192.0.2.10")
+    except RuntimeError:
+        record = make_record("failed", exc_info=sys.exc_info())
+    log_filter = RedactingFilter()
+    log_filter.add("a1b2c3d4e5f6a7b8")
+
+    log_filter.filter(record)
+    text = logging.Formatter().format(record)
+
+    assert "RuntimeError: bad key a1…b8 from 19…10" in text
+    assert "a1b2c3d4e5f6a7b8" not in text
+    assert "192.0.2.10" not in text
+
+
+def test_redacting_filter_masks_the_stack_info():
+    record = make_record("here")
+    record.stack_info = "Stack (most recent call last):\n  key a1b2c3d4e5f6a7b8"
+    log_filter = RedactingFilter()
+    log_filter.add("a1b2c3d4e5f6a7b8")
+    log_filter.filter(record)
+    assert "a1b2c3d4e5f6a7b8" not in record.stack_info
+
+
+@pytest.mark.parametrize("suffix", [".", "...", ":6668", ",", ")"])
+def test_redacting_filter_masks_ipv4_followed_by_punctuation(suffix):
+    assert RedactingFilter().redact(f"timeout at 192.0.2.10{suffix}") == f"timeout at 19…10{suffix}"
+
+
+def test_redacting_filter_ignores_longer_dotted_numbers():
+    assert RedactingFilter().redact("build 1.2.3.4.5") == "build 1.2.3.4.5"
+
+
+def test_redact_is_case_insensitive():
+    assert redact("mac 00:00:00:AA:BB:20", ["00:00:00:aa:bb:20"]) == "mac 00…20"
+    assert redact("id BF0000AA", ["bf0000aa"]) == "id BF…AA"

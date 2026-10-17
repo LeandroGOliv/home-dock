@@ -60,3 +60,66 @@ def test_capability_values_match_state_fields():
     # Generic code (scenes, groups) addresses state fields by capability name.
     for capability in Capability:
         assert DeviceState().get(capability) is None
+
+
+FULL = DeviceState(
+    power=True,
+    work_mode=WorkMode.COLOR,
+    brightness=80,
+    color_hsv=Color(300, 50),
+    color_temperature=30,
+)
+
+
+def test_to_dict_keeps_only_the_values_that_are_set_in_json_types():
+    assert DeviceState(power=False, work_mode=WorkMode.WHITE, brightness=0).to_dict() == {
+        "power": False,
+        "work_mode": "white",
+        "brightness": 0,
+    }
+    assert DeviceState(color_hsv=Color(120, 40)).to_dict() == {
+        "color_hsv": {"hue": 120, "saturation": 40}
+    }
+
+
+@pytest.mark.parametrize("state", [DeviceState(), FULL, DeviceState(power=False)])
+def test_from_dict_round_trips(state):
+    assert DeviceState.from_dict(state.to_dict()) == state
+
+
+def test_every_capability_round_trips():
+    # A new capability must come with its encoding.
+    assert FULL.capabilities == frozenset(Capability)
+    assert DeviceState.from_dict(FULL.to_dict()) == FULL
+
+
+def test_from_dict_ignores_unknown_keys():
+    # e.g. a capability written by a newer version of the app.
+    assert DeviceState.from_dict({"power": True, "fan_speed": 3}) == DeviceState(power=True)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"power": "yes"},
+        {"power": 1},
+        {"work_mode": "scene"},
+        {"work_mode": ["white"]},
+        {"brightness": "80"},
+        {"brightness": True},
+        {"brightness": 80.5},
+        {"brightness": 101},
+        {"color_hsv": [300, 50]},
+        {"color_hsv": {"hue": 300}},
+        {"color_hsv": {"hue": 400, "saturation": 50}},
+        {"color_temperature": None},
+    ],
+)
+def test_from_dict_rejects_invalid_values(data):
+    with pytest.raises(ValueError):
+        DeviceState.from_dict(data)
+
+
+def test_from_dict_rejects_a_non_mapping():
+    with pytest.raises(ValueError):
+        DeviceState.from_dict(["power"])

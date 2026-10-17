@@ -48,7 +48,8 @@ transport), `rgb_bulb.py` (bulb driver, the only place with bulb DPS), `registry
   `WorkMode.COLOR`, `brightness` 0–100 %, `color_hsv` `Color(hue 0–360°, saturation
   0–100 %)`, `color_temperature` 0–100 % (warm→cold). `None` means unknown/unchanged, so
   the same type is a full state, a partial change or a scene entry. Helpers:
-  `capabilities`, `get()`, `restricted_to()`, `merged()`. Out-of-range values raise.
+  `capabilities`, `get()`, `restricted_to()`, `merged()`, `to_dict()` / `from_dict()`
+  (JSON-compatible, used by storage). Out-of-range values raise.
 - `Device` (protocol) — `id`, `name`, `type`, `capabilities`, `online`, `read_state()`,
   `apply(changes) -> DeviceState`. Both I/O methods block and raise `DeviceError`;
   unsupported capabilities in `changes` are skipped silently.
@@ -155,13 +156,55 @@ protocol; tests guard that it never mentions `RgbBulb`, imports only the public
 
 ## Storage
 
-All files under `%APPDATA%\HomeDock\` (never in the repo):
+Modules: `files.py` (`AppPaths`, `write_atomic`), `devices.py` (device import),
+`config.py` (`config.json`), `logs.py` (log files), `app_data.py` (start-up). Storage may
+use `core`, the public `homedock.devices` API and `masking`; tests guard that it never
+imports `ui`, Qt or a concrete driver.
+
+All files under `%APPDATA%\HomeDock\` (`AppPaths.default()`; the roaming profile folder
+when `APPDATA` is unset), never in the repo or the working directory:
 
 - `devices.json` — imported tinytuya wizard output (IDs, local keys, IPs). Read-only for
-  the app except IP refresh after a scan.
+  the app except IP refresh after a scan. `import_devices()` builds the devices through
+  the driver registry (never connects, never raises) and reports a problem (`missing`,
+  `unreadable`, `invalid`) instead of failing; it also returns every sensitive value of
+  the file (ID, key, IP, MAC, UUID, serial) so the logs can mask it. A UTF-8 BOM is
+  accepted.
 - `config.json` — display names, groups, scenes, settings (start with Windows, last
-  target). Versioned schema (`"schema": 1`) with migrations.
-- logs — keys/credentials masked; IDs/IPs masked.
+  target), as the frozen `Config` / `Settings` dataclasses:
+
+  ```json
+  {
+    "schema": 1,
+    "names": { "<device-id>": "Abajur" },
+    "groups": [{ "id": "…", "name": "Sala", "members": ["<device-id>"] }],
+    "scenes": [{ "id": "…", "name": "Leitura", "devices": { "<device-id>": { … } } }],
+    "settings": { "start_with_windows": false,
+                  "last_target": { "kind": "group", "key": "…" } }
+  }
+  ```
+
+  Scene states use `DeviceState.to_dict()` / `from_dict()` (defined in the device layer,
+  so a new capability brings its own encoding). Missing sections take their defaults and
+  unknown keys are ignored. `MIGRATIONS[n]` upgrades a schema-n document to n + 1;
+  `migrate()` applies them in order on load (a missing step is a `ConfigError`). Saving always writes the current schema.
+- **Atomic writes** — `write_atomic()` writes a temporary file in the same folder,
+  fsyncs it and renames it over the target (`os.replace`); on failure the old file is
+  kept and the temporary file removed.
+- **Corrupt config** — `load_config()` never raises: an unreadable, invalid or newer-schema
+  file is moved to `config.corrupt-<timestamp>.json` (kept for the user) and the app
+  starts from the defaults (`LoadedConfig.backup` tells the UI). Validation is
+  all-or-nothing: one invalid entry makes the whole file corrupt.
+- **Logs** — `logs\homedock.log`, rotating (1 MB × 3 backups), UTF-8, attached to the
+  root logger so library logs are covered too (calling `setup_logging()` again replaces
+  the handler). A `RedactingFilter` on the handler masks the secrets imported from
+  `devices.json` (ignoring letter case) and **any IPv4 address** in the message, the
+  exception text and the stack info. Load errors log only the error type, never values
+  read from the files.
+- **Start-up** — `open_app_data()` sets up the logs, imports the devices (registering
+  their secrets in the log filter), loads the config and writes the default `config.json`
+  when there is none. `AppData.save(config)` persists changes. `homedock` (`__main__`)
+  currently only runs this start-up.
 
 "Recarregar dispositivos" re-imports `devices.json`, runs a local `tinytuya` scan to fill or
 refresh IPs, and warns when a Tuya device on the LAN is missing from `devices.json`

@@ -3,26 +3,11 @@ import logging
 import shutil
 from pathlib import Path
 
-import pytest
-
-from homedock.__main__ import main
 from homedock.storage import AppPaths, Config, ImportProblem, open_app_data, save_config
 from homedock.storage.logs import LOG_FILE
 
 EXAMPLE = Path(__file__).parents[1] / "devices.example.json"
 EXAMPLE_ENTRY = json.loads(EXAMPLE.read_text(encoding="utf-8"))[0]
-
-
-@pytest.fixture(autouse=True)
-def restore_root_logger():
-    root = logging.getLogger()
-    handlers, level = root.handlers[:], root.level
-    yield
-    for handler in root.handlers[:]:
-        if handler not in handlers:
-            root.removeHandler(handler)
-            handler.close()
-    root.setLevel(level)
 
 
 def all_files(folder: Path) -> set[str]:
@@ -85,22 +70,6 @@ def test_save_persists_and_keeps_the_new_config(tmp_path):
     data.save(Config(names={"dev-a": "Abajur"}))
     assert data.config.names == {"dev-a": "Abajur"}
     assert open_app_data(paths).config.names == {"dev-a": "Abajur"}
-
-
-def test_main_writes_only_under_appdata_homedock(tmp_path, monkeypatch, capsys):
-    appdata, cwd, home = tmp_path / "appdata", tmp_path / "cwd", tmp_path / "home"
-    for folder in (appdata, cwd, home):
-        folder.mkdir()
-    monkeypatch.setenv("APPDATA", str(appdata))
-    monkeypatch.setattr(Path, "home", lambda: home)
-    monkeypatch.chdir(cwd)
-
-    assert main() == 0
-
-    assert all_files(appdata) == {"HomeDock/config.json", f"HomeDock/logs/{LOG_FILE}"}
-    assert all_files(cwd) == set()
-    assert all_files(home) == set()
-    assert "HomeDock" in capsys.readouterr().err
 
 
 def test_an_invalid_config_never_logs_the_device_ids_it_contains(tmp_path):

@@ -15,7 +15,8 @@ Na v1 o foco são as **lâmpadas RGB Wi-Fi da Positivo Casa Inteligente** (Tuya 
   destaque do sistema;
 - opção de iniciar com o Windows.
 
-> **Status:** em desenvolvimento. O app ainda não está funcional — acompanhe as
+> **Status:** em desenvolvimento. O ícone na bandeja e o menu já funcionam; o painel
+> (flyout) ainda não — acompanhe as
 > [issues](https://github.com/LeandroGOLiv/home-dock/issues) e milestones.
 
 ## Requisitos
@@ -64,6 +65,22 @@ complete-os com o `tinytuya scan` (detalhes em [docs/configuracao.md](docs/confi
 
 **Recomendação:** reserve um IP fixo (reserva DHCP) para cada lâmpada no seu roteador.
 Assim o IP não muda e o HomeDock não precisa redescobri-las.
+
+## Uso
+
+Rode `uv run homedock`. O HomeDock aparece como um ícone de lâmpada na bandeja (se não o
+vir, procure na seta **^** ao lado do relógio). Abrir o app de novo não cria um segundo
+ícone.
+
+- **Clique esquerdo:** abre/fecha o painel (por enquanto, só um aviso de "em breve").
+- **Clique direito:** menu com **Abrir painel**, **Ligar todos**, **Desligar todos**, uma
+  opção por lâmpada (marcada = acesa; "offline" quando ela não responde), **Cenas** (aplica
+  uma cena salva), **Iniciar com o Windows** e **Sair**. Por enquanto, **Iniciar com o
+  Windows** só guarda a preferência; o registro no Windows chega junto com o
+  `HomeDock.exe`.
+
+O estado das lâmpadas é lido de novo toda vez que o menu abre. Os comandos nunca travam o
+app, mesmo com uma lâmpada fora da tomada.
 
 ## Segurança
 

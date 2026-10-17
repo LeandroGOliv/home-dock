@@ -2,12 +2,12 @@
 
 import logging
 import threading
-from collections import deque
-from concurrent.futures import Executor, Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from enum import StrEnum
 
 import pytest
 
+from executors import ManualExecutor
 from homedock.core.control import THROTTLE_INTERVAL, CommandResult, ControlService
 from homedock.core.groups import GroupBook
 from homedock.core.scenes import Scene
@@ -28,27 +28,6 @@ ALL_BULBS = Target.all_of(DeviceType.RGB_BULB)
 
 class OtherType(StrEnum):
     AC = "test_ac"
-
-
-class ManualExecutor(Executor):
-    """Queues tasks until ``run_all()``: lets a test decide when "worker" code runs."""
-
-    def __init__(self) -> None:
-        self.tasks: deque = deque()
-
-    def submit(self, fn, /, *args, **kwargs):
-        future: Future = Future()
-        self.tasks.append((future, fn, args, kwargs))
-        return future
-
-    def run_all(self) -> None:
-        while self.tasks:
-            future, fn, args, kwargs = self.tasks.popleft()
-            future.set_running_or_notify_cancel()
-            try:
-                future.set_result(fn(*args, **kwargs))
-            except BaseException as exc:
-                future.set_exception(exc)
 
 
 class FakeClock:

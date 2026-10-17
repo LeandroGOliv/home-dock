@@ -134,6 +134,22 @@ de luz), quem decide como ela volta é a configuração da própria lâmpada, aj
 do celular (nas configurações do dispositivo, opções como *memória ao desligar* /
 *comportamento ao ligar* e *não perturbe*). O HomeDock não altera essas opções.
 
+## Arquivos do HomeDock em `%APPDATA%\HomeDock`
+
+| Arquivo | Para que serve |
+|---|---|
+| `devices.json` | Cópia do arquivo do wizard. O HomeDock só lê (e, no futuro, atualiza IPs). |
+| `config.json` | Nomes que você deu às lâmpadas, grupos, cenas e preferências (iniciar com o Windows, último alvo selecionado). Criado na primeira execução. |
+| `logs\homedock.log` | Registro de funcionamento, útil para diagnosticar problemas. Gira automaticamente (até 4 arquivos de 1 MB). |
+
+- O `config.json` é sempre gravado de forma segura (arquivo temporário + troca), então
+  uma queda de energia durante a gravação não deixa o arquivo pela metade.
+- Se o `config.json` estiver corrompido ou ilegível, o HomeDock **não fecha**: ele renomeia
+  o arquivo para `config.corrupt-<data>-<hora>.json` (para você não perder nada) e começa
+  de novo com a configuração padrão.
+- Os logs **nunca** mostram local keys, IDs completos de dispositivos ou IPs: eles
+  aparecem mascarados (ex.: `bf…9c`, `19…10`). Mesmo assim, prefira não publicar logs.
+
 ## Problemas comuns
 
 | Sintoma | O que verificar |
@@ -142,3 +158,4 @@ do celular (nas configurações do dispositivo, opções como *memória ao desli
 | Lâmpada aparece *offline* no HomeDock | Ela está energizada? O IP mudou (use Recarregar dispositivos ou reserve IP fixo)? |
 | Erro de chave / dispositivo não responde após reset | A local key mudou — rode o wizard de novo e reimporte. |
 | Wizard reclama de credenciais | Confira Access ID/Secret e o Data Center (Western America → região `us`). |
+| Grupos/cenas sumiram e apareceu um `config.corrupt-….json` | O `config.json` estava corrompido. Seus dados continuam no arquivo `config.corrupt-…` (não o publique: ele contém IDs dos dispositivos). |

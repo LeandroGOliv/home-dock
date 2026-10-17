@@ -2,10 +2,11 @@
 keeps a state cache. Works with generic devices only.
 
 Every device has a lane: a FIFO of jobs (writes and reads) drained by one worker task at
-a time, so I/O to one device is serialised while different devices run in parallel. A job
-queued behind a pending one of the same kind replaces it when it covers all its values
-(latest value wins: slider/ring drags collapse into one write), and writes to a device are
-spaced by ``throttle`` seconds.
+a time, so I/O to one device is serialised and ordered while different devices run in
+parallel. A write queued behind a pending write of the same capabilities replaces it
+(latest value wins: slider/ring drags collapse into few writes); consecutive reads merge.
+Writes to a device are spaced by ``throttle`` seconds. When a device is unreachable, the
+jobs queued behind the failed one fail at once instead of each waiting for a timeout.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import logging
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import Executor, Future, InvalidStateError, ThreadPoolExecutor
 from dataclasses import dataclass, field
 
@@ -30,6 +31,10 @@ log = logging.getLogger(__name__)
 
 THROTTLE_INTERVAL = 0.1  # seconds between the end of a write and the next write to a device
 MIN_WORKERS = 8
+
+
+class ServiceClosedError(RuntimeError):
+    """The control service was shut down."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,10 +57,14 @@ class _Job:
     waiters: list[Future[DeviceState]] = field(default_factory=list)
 
     def absorbs(self, changes: DeviceState | None) -> bool:
-        """Whether ``changes`` can replace this pending job (reads merge with reads)."""
+        """Whether ``changes`` can replace this pending job.
+
+        Only for the same capabilities: a wider change may imply another device mode (e.g.
+        a bulb's colour vs white), so it must not swallow the pending one.
+        """
         if self.changes is None or changes is None:
             return self.changes is None and changes is None
-        return changes.capabilities >= self.changes.capabilities
+        return changes.capabilities == self.changes.capabilities
 
 
 @dataclass(eq=False)
@@ -93,6 +102,7 @@ class ControlService:
         self._sleep = sleep
         self._throttle = throttle
         self._lock = threading.Lock()
+        self._closed = False
         self._lanes = {device.id: _Lane(device) for device in self._devices}
         self._states: dict[str, DeviceState] = {}
         self._online: dict[str, bool] = {}
@@ -130,25 +140,24 @@ class ControlService:
 
     def refresh(self, target: Target) -> Future[CommandResult]:
         """Read the real state of every member into the cache, in parallel."""
-        pending = [(d.id, self._enqueue(d.id, None)) for d in self.members(target)]
-        return _gather(pending)
+        return self._read(self.members(target))
 
-    def snapshot(self, target: Target) -> dict[str, DeviceState]:
-        """Cached state of the members worth saving in a scene ("Salvar atual").
+    def capture(self, target: Target) -> Future[dict[str, DeviceState]]:
+        """The real state of the members, to save as a scene ("Salvar atual").
 
-        Devices that are offline or were never read are left out; each state keeps only
-        the device's capabilities.
+        The read is queued behind pending writes, so the end of a drag is included. Devices
+        that do not answer are left out; each state keeps only the device's capabilities.
         """
-        snapshot: dict[str, DeviceState] = {}
-        with self._lock:
-            for device in self.members(target):
-                state = self._states.get(device.id)
-                if state is None or self._online.get(device.id) is False:
-                    continue
-                kept = state.restricted_to(device.capabilities)
-                if kept.capabilities:
-                    snapshot[device.id] = kept
-        return snapshot
+        members = self.members(target)
+        result: Future[dict[str, DeviceState]] = Future()
+
+        def on_read(read: Future[CommandResult]) -> None:
+            answered = set(read.result().succeeded)
+            with contextlib.suppress(InvalidStateError):
+                result.set_result(self._snapshot(d for d in members if d.id in answered))
+
+        self._read(members).add_done_callback(on_read)
+        return result
 
     def apply_scene(self, scene: Scene) -> Future[CommandResult]:
         """Apply every entry in parallel; offline and unknown devices are only reported."""
@@ -158,7 +167,12 @@ class ControlService:
         return self._dispatch(entries, unknown)
 
     def shutdown(self) -> None:
-        """Stop the worker pool the service created (an injected executor is left alone)."""
+        """Fail queued jobs, refuse new ones and stop the worker pool the service created
+        (an injected executor is left running)."""
+        with self._lock:
+            self._closed = True
+        for lane in self._lanes.values():
+            self._drop_jobs(lane, ServiceClosedError("control service is shut down"), idle=True)
         if self._owns_executor:
             self._executor.shutdown(wait=False, cancel_futures=True)
 
@@ -177,39 +191,77 @@ class ControlService:
                 skipped.append(device.id)
         return _gather(pending, tuple(skipped), unknown)
 
+    def _read(self, devices: Sequence[Device]) -> Future[CommandResult]:
+        return _gather([(d.id, self._enqueue(d.id, None)) for d in devices])
+
+    def _snapshot(self, devices: Iterable[Device]) -> dict[str, DeviceState]:
+        snapshot: dict[str, DeviceState] = {}
+        with self._lock:
+            for device in devices:
+                state = self._states.get(device.id)
+                kept = state.restricted_to(device.capabilities) if state else DeviceState()
+                if kept.capabilities:
+                    snapshot[device.id] = kept
+        return snapshot
+
     def _enqueue(self, device_id: str, changes: DeviceState | None) -> Future[DeviceState]:
         future: Future[DeviceState] = Future()
         with self._lock:
+            closed = self._closed
             lane = self._lanes[device_id]
-            tail = lane.jobs[-1] if lane.jobs else None
-            if tail is not None and tail.absorbs(changes):
-                tail.changes = changes
-                tail.waiters.append(future)
-            else:
-                lane.jobs.append(_Job(changes, [future]))
-            start = not lane.busy
-            lane.busy = True
-        if start:
-            self._executor.submit(self._drain, lane)
+            if not closed:
+                tail = lane.jobs[-1] if lane.jobs else None
+                if tail is not None and tail.absorbs(changes):
+                    tail.changes = changes
+                    tail.waiters.append(future)
+                else:
+                    lane.jobs.append(_Job(changes, [future]))
+            start = not closed and not lane.busy
+            if start:
+                lane.busy = True
+        if closed:
+            _settle(future, None, ServiceClosedError("control service is shut down"))
+        elif start:
+            try:
+                self._executor.submit(self._drain, lane)
+            except Exception as exc:  # e.g. the injected executor was shut down
+                log.error("cannot schedule I/O for device %s: %s", mask(device_id), exc)
+                self._drop_jobs(lane, exc, idle=True)
         return future
 
     def _drain(self, lane: _Lane) -> None:
-        while True:
-            with self._lock:
-                if not lane.jobs:
-                    lane.busy = False
-                    return
-                wait = self._wait_before(lane) if lane.jobs[0].changes is not None else 0.0
-            if wait > 0:
-                self._sleep(wait)  # values arriving meanwhile coalesce into the head job
-            with self._lock:
-                job = lane.jobs.popleft()
-            self._run(lane, job)
+        job: _Job | None = None
+        try:
+            while True:
+                with self._lock:
+                    if not lane.jobs:
+                        lane.busy = False
+                        return
+                    head_is_write = lane.jobs[0].changes is not None
+                wait = self._wait_before(lane) if head_is_write else 0.0
+                if wait > 0:
+                    self._sleep(wait)  # values arriving meanwhile coalesce into the head job
+                with self._lock:
+                    if not lane.jobs:  # dropped by shutdown meanwhile
+                        continue
+                    job = lane.jobs.popleft()
+                self._run(lane, job)
+                job = None
+        except BaseException as exc:
+            # Never leave the lane busy with unanswered jobs, whatever went wrong.
+            log.exception("I/O lane of device %s failed", mask(lane.device.id))
+            if job is not None:
+                for waiter in job.waiters:
+                    _settle(waiter, None, exc)
+            self._drop_jobs(lane, exc, idle=True)
+            raise
 
     def _wait_before(self, lane: _Lane) -> float:
-        if lane.last_write is None:
+        with self._lock:
+            last_write = lane.last_write
+        if last_write is None:
             return 0.0
-        return lane.last_write + self._throttle - self._clock()
+        return last_write + self._throttle - self._clock()
 
     def _run(self, lane: _Lane, job: _Job) -> None:
         device = lane.device
@@ -227,15 +279,34 @@ class ControlService:
             error = exc
         finally:
             if job.changes is not None:
+                ended = self._clock()
                 with self._lock:
-                    lane.last_write = self._clock()
+                    lane.last_write = ended
         self._record(device.id, state, online)
         for waiter in job.waiters:
             _settle(waiter, state, error)
+        if online is False:
+            # Unreachable: the jobs queued meanwhile would each wait for a timeout too.
+            self._drop_jobs(lane, error, idle=False)
+
+    def _drop_jobs(self, lane: _Lane, error: BaseException, *, idle: bool) -> None:
+        """Fail every queued job of ``lane``; ``idle`` also marks it as not draining."""
+        with self._lock:
+            jobs = list(lane.jobs)
+            lane.jobs.clear()
+            if idle:
+                lane.busy = False
+        for job in jobs:
+            for waiter in job.waiters:
+                _settle(waiter, None, error)
 
     def _record(self, device_id: str, state: DeviceState | None, online: bool | None) -> None:
+        """Update the cache (a partial state is merged into the known one) and notify."""
         with self._lock:
-            state_changed = state is not None and self._states.get(device_id) != state
+            previous = self._states.get(device_id)
+            if state is not None and previous is not None:
+                state = previous.merged(state)
+            state_changed = state is not None and state != previous
             online_changed = online is not None and self._online.get(device_id) != online
             if state is not None:
                 self._states[device_id] = state

@@ -3,7 +3,7 @@
 import logging
 import threading
 from collections import deque
-from concurrent.futures import Executor, Future
+from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from enum import StrEnum
 
 import pytest
@@ -12,7 +12,14 @@ from homedock.core.control import THROTTLE_INTERVAL, CommandResult, ControlServi
 from homedock.core.groups import GroupBook
 from homedock.core.scenes import Scene
 from homedock.core.targets import Target
-from homedock.devices import Capability, Color, DeviceState, DeviceType, WorkMode
+from homedock.devices import (
+    Capability,
+    Color,
+    DeviceError,
+    DeviceState,
+    DeviceType,
+    WorkMode,
+)
 from homedock.devices.fake import FakeDevice
 
 BULB = frozenset(Capability)
@@ -221,17 +228,32 @@ def test_a_device_coming_back_is_reported_online(make_service, executor):
     assert service.is_online("bulb-1") is True
 
 
+class RaisingFake(FakeDevice):
+    """Fake whose ``apply`` raises ``error`` while it is set."""
+
+    error: Exception | None = None
+
+    def apply(self, changes: DeviceState) -> DeviceState:
+        if self.error is not None:
+            raise self.error
+        return super().apply(changes)
+
+
 def test_unexpected_errors_fail_the_device_without_marking_it_offline(
     make_service, executor, caplog
 ):
-    device = bulb()
-    device.apply = lambda changes: (_ for _ in ()).throw(ValueError("bug"))
+    device = RaisingFake("bulb-1", "bulb-1", DeviceType.RGB_BULB, BULB)
+    device.error = ValueError("bug")
     service = make_service(device)
+    target = Target.device("bulb-1")
     with caplog.at_level(logging.ERROR):
-        result = done(service.send(Target.device("bulb-1"), DeviceState(power=True)), executor)
+        result = done(service.send(target, DeviceState(power=True)), executor)
     assert result == CommandResult(failed=("bulb-1",))
     assert service.is_online("bulb-1") is None
     assert "bug" in caplog.text
+
+    device.error = None
+    assert done(service.send(target, DeviceState(power=True)), executor).ok
 
 
 def test_a_failing_listener_does_not_fail_the_command(make_service, executor):
@@ -280,14 +302,25 @@ def test_different_changes_are_not_merged_and_keep_their_order(make_service, exe
     ]
 
 
-def test_a_change_covering_the_pending_one_replaces_it(make_service, executor):
+def test_only_changes_of_the_same_capabilities_coalesce(make_service, executor):
+    # A wider change may imply another bulb mode than the pending one, so both are sent.
     device = bulb()
     service = make_service(device)
     target = Target.device("bulb-1")
-    service.send(target, DeviceState(brightness=10))
-    service.send(target, DeviceState(power=True, brightness=20))
+    service.send(target, DeviceState(color_temperature=40))
+    service.send(target, DeviceState(color_temperature=50, color_hsv=Color(0, 100)))
     executor.run_all()
-    assert device.applied == [DeviceState(power=True, brightness=20)]
+    assert device.applied == [
+        DeviceState(color_temperature=40),
+        DeviceState(color_temperature=50, color_hsv=Color(0, 100)),
+    ]
+
+
+def test_coalesced_commands_all_report_the_failure(make_service, executor):
+    service = make_service(bulb(online=False))
+    futures = [service.send(Target.device("bulb-1"), DeviceState(brightness=v)) for v in (1, 2)]
+    executor.run_all()
+    assert [f.result() for f in futures] == [CommandResult(failed=("bulb-1",))] * 2
 
 
 def test_writes_to_a_device_are_throttled(make_service, executor, clock):
@@ -392,11 +425,12 @@ def test_io_to_one_device_is_never_concurrent():
     entered = threading.Event()
     release = threading.Event()
     active = []
+    overlapped = []
 
     class GatedFake(FakeDevice):
         def apply(self, changes: DeviceState) -> DeviceState:
             active.append(changes)
-            assert len(active) == 1, "two calls to the same device at once"
+            overlapped.append(len(active) > 1)
             entered.set()
             release.wait(timeout=5)
             active.pop()
@@ -415,43 +449,46 @@ def test_io_to_one_device_is_never_concurrent():
         release.set()
         service.shutdown()
     assert device.applied == [DeviceState(brightness=10), DeviceState(power=True)]
+    assert overlapped == [False, False]
 
 
 # --- scenes -------------------------------------------------------------------------------
 
 
-def test_snapshot_captures_only_the_target_with_supported_known_states(make_service, executor):
+def test_capture_reads_the_online_members_of_the_target(make_service, executor):
     lamp = bulb("bulb-1", state=DeviceState(power=True, brightness=60))
-    other_lamp = bulb("bulb-2", state=DeviceState(power=False))
-    never_read = bulb("bulb-3")
-    gone_offline = bulb("bulb-4", state=DeviceState(power=True))
-    ac = air_conditioner()
+    outside = bulb("bulb-2", state=DeviceState(power=False))
+    offline = bulb("bulb-3", state=DeviceState(power=True), online=False)
+    silent = air_conditioner()  # reports nothing: nothing to restore
     groups = GroupBook()
-    sala = groups.create("Sala", ["bulb-1", "bulb-3", "bulb-4", "ac-1"])
-    service = make_service(lamp, other_lamp, never_read, gone_offline, ac, groups=groups)
-    done(service.refresh(Target.device("bulb-1")), executor)
-    done(service.refresh(Target.device("bulb-2")), executor)
-    done(service.refresh(Target.device("bulb-4")), executor)
-    done(service.refresh(Target.device("ac-1")), executor)
-    gone_offline.online = False
-    done(service.refresh(Target.device("bulb-4")), executor)
+    sala = groups.create("Sala", ["bulb-1", "bulb-3", "ac-1"])
+    service = make_service(lamp, outside, offline, silent, groups=groups)
 
-    # bulb-2 is outside the group, bulb-3 never answered, bulb-4 is offline, ac-1 reported
-    # nothing: only bulb-1 has something to restore.
-    assert service.snapshot(Target.group(sala.id)) == {
-        "bulb-1": DeviceState(power=True, brightness=60),
-    }
+    future = service.capture(Target.group(sala.id))
+    executor.run_all()
+
+    assert future.result() == {"bulb-1": DeviceState(power=True, brightness=60)}
+    assert service.state("bulb-2") is None  # outside the target: not read
 
 
-def test_snapshot_keeps_only_the_capabilities_of_each_device(make_service, executor):
+def test_capture_keeps_only_the_capabilities_of_each_device(make_service, executor):
     class LeakyAc(FakeDevice):
         def read_state(self) -> DeviceState:
             return DeviceState(power=True, brightness=50)
 
     ac = LeakyAc("ac-1", "ac-1", OtherType.AC, frozenset({Capability.POWER}))
     service = make_service(ac)
-    done(service.refresh(Target.device("ac-1")), executor)
-    assert service.snapshot(Target.device("ac-1")) == {"ac-1": DeviceState(power=True)}
+    future = service.capture(Target.device("ac-1"))
+    executor.run_all()
+    assert future.result() == {"ac-1": DeviceState(power=True)}
+
+
+def test_capture_includes_writes_still_queued(make_service, executor):
+    service = make_service(bulb(state=DeviceState(power=True, brightness=20)))
+    service.send(Target.device("bulb-1"), DeviceState(brightness=90))  # end of a drag
+    future = service.capture(Target.device("bulb-1"))
+    executor.run_all()
+    assert future.result() == {"bulb-1": DeviceState(power=True, brightness=90)}
 
 
 def test_apply_scene_sends_each_device_its_own_entry(make_service, executor):
@@ -497,11 +534,203 @@ def test_a_captured_scene_restores_the_devices(make_service, executor):
     a = bulb("bulb-a", state=DeviceState(power=True, work_mode=WorkMode.WHITE, brightness=30))
     b = bulb("bulb-b", state=DeviceState(power=True, color_hsv=Color(200, 50), brightness=90))
     service = make_service(a, b)
-    done(service.refresh(ALL_BULBS), executor)
-    scene = Scene("scene-1", "Noite", service.snapshot(ALL_BULBS))
+    captured = service.capture(ALL_BULBS)
+    executor.run_all()
+    scene = Scene("scene-1", "Noite", captured.result())
 
     done(service.send(ALL_BULBS, DeviceState(power=False, brightness=5)), executor)
     assert done(service.apply_scene(scene), executor).ok
 
-    assert service.snapshot(ALL_BULBS) == scene.devices
+    recaptured = service.capture(ALL_BULBS)
+    executor.run_all()
+    assert recaptured.result() == scene.devices
     assert a.state == DeviceState(power=True, work_mode=WorkMode.WHITE, brightness=30)
+
+
+def test_apply_scene_edge_cases(make_service, executor):
+    service = make_service(bulb("bulb-a"), bulb("bulb-b", online=False))
+    empty = service.apply_scene(Scene("s-1", "Vazia", {}))
+    assert empty.done()
+    assert empty.result() == CommandResult()
+
+    blank_entry = Scene("s-2", "X", {"bulb-a": DeviceState()})
+    assert done(service.apply_scene(blank_entry), executor) == CommandResult(skipped=("bulb-a",))
+
+    all_offline = Scene("s-3", "Y", {"bulb-b": DeviceState(power=True)})
+    result = done(service.apply_scene(all_offline), executor)
+    assert result == CommandResult(failed=("bulb-b",))
+    assert not result.ok
+
+
+# --- lifecycle and robustness -------------------------------------------------------------
+
+
+def test_shutdown_fails_queued_commands(make_service, executor):
+    device = bulb()
+    service = make_service(device)
+    future = service.send(Target.device("bulb-1"), DeviceState(power=True))
+    service.shutdown()
+    assert future.done()
+    assert future.result() == CommandResult(failed=("bulb-1",))
+    executor.run_all()
+    assert device.applied == []
+
+
+def test_commands_after_shutdown_fail_immediately(make_service):
+    service = make_service(bulb())
+    service.shutdown()
+    future = service.send(Target.device("bulb-1"), DeviceState(power=True))
+    assert future.done()
+    assert future.result() == CommandResult(failed=("bulb-1",))
+
+
+def test_shutdown_leaves_an_injected_executor_running():
+    injected = ThreadPoolExecutor(max_workers=1)
+    try:
+        ControlService([bulb()], executor=injected).shutdown()
+        assert injected.submit(lambda: 42).result(timeout=5) == 42
+    finally:
+        injected.shutdown()
+
+
+def test_a_refused_submit_fails_the_command_and_frees_the_lane(make_service, executor):
+    original = executor.submit
+    calls = []
+
+    def flaky_submit(fn, /, *args, **kwargs):
+        calls.append(fn)
+        if len(calls) == 1:
+            raise RuntimeError("cannot schedule new futures")
+        return original(fn, *args, **kwargs)
+
+    executor.submit = flaky_submit
+    service = make_service(bulb())
+    target = Target.device("bulb-1")
+    refused = service.send(target, DeviceState(power=True))
+    assert refused.result() == CommandResult(failed=("bulb-1",))
+    assert done(service.send(target, DeviceState(power=True)), executor).ok
+
+
+def test_the_lane_survives_an_error_in_the_drain_loop(make_service, executor, clock):
+    service = make_service(bulb())
+    target = Target.device("bulb-1")
+    done(service.send(target, DeviceState(brightness=10)), executor)
+
+    def broken_hook():
+        raise RuntimeError("sleep failed")
+
+    clock.on_sleep = broken_hook
+    failed = done(service.send(target, DeviceState(brightness=20)), executor)
+    assert failed == CommandResult(failed=("bulb-1",))
+    clock.now += THROTTLE_INTERVAL
+    assert done(service.send(target, DeviceState(brightness=30)), executor).ok
+
+
+def test_cancelling_a_result_does_not_break_later_commands(make_service, executor):
+    service = make_service(bulb())
+    target = Target.device("bulb-1")
+    service.send(target, DeviceState(power=True)).cancel()
+    executor.run_all()
+    assert done(service.send(target, DeviceState(power=False)), executor).ok
+
+
+def test_an_unreachable_device_fails_its_backlog_at_once(make_service, executor):
+    log: list = []
+    device = LoggingFake("bulb-1", "bulb-1", DeviceType.RGB_BULB, BULB, online=False, log=log)
+    service = make_service(device)
+    target = Target.device("bulb-1")
+    futures = [
+        service.send(target, DeviceState(brightness=10)),
+        service.send(target, DeviceState(color_hsv=Color(10, 10))),
+        service.refresh(target),
+    ]
+    executor.run_all()
+    assert all(f.result() == CommandResult(failed=("bulb-1",)) for f in futures)
+    assert log == [("bulb-1", "apply")]  # one timeout, not one per queued job
+
+
+def test_reads_are_not_throttled(make_service, executor, clock):
+    service = make_service(bulb())
+    target = Target.device("bulb-1")
+    done(service.send(target, DeviceState(power=True)), executor)
+    done(service.refresh(target), executor)
+    assert clock.sleeps == []
+
+
+def test_a_failed_write_still_spaces_the_next_write(make_service, executor, clock):
+    device = bulb(online=False)
+    service = make_service(device)
+    done(service.send(Target.device("bulb-1"), DeviceState(power=True)), executor)
+    device.online = True
+    done(service.send(Target.device("bulb-1"), DeviceState(power=True)), executor)
+    assert clock.sleeps == [THROTTLE_INTERVAL]
+
+
+def test_the_throttle_counts_from_the_end_of_a_write(executor, clock):
+    class SlowFake(FakeDevice):
+        def apply(self, changes: DeviceState) -> DeviceState:
+            clock.now += 2.0
+            return super().apply(changes)
+
+    device = SlowFake("bulb-1", "bulb-1", DeviceType.RGB_BULB, BULB)
+    service = ControlService(
+        [device], executor=executor, clock=clock, sleep=clock.sleep, throttle=0.5
+    )
+    done(service.send(Target.device("bulb-1"), DeviceState(brightness=1)), executor)
+    done(service.send(Target.device("bulb-1"), DeviceState(brightness=2)), executor)
+    assert clock.sleeps == [0.5]
+
+
+def test_partial_states_merge_into_the_cache(make_service, executor):
+    class PartialFake(FakeDevice):
+        def apply(self, changes: DeviceState) -> DeviceState:
+            super().apply(changes)
+            return changes  # only what was written
+
+    device = PartialFake("bulb-1", "bulb-1", DeviceType.RGB_BULB, BULB)
+    device.state = DeviceState(power=True, brightness=40)
+    service = make_service(device)
+    done(service.refresh(Target.device("bulb-1")), executor)
+    done(service.send(Target.device("bulb-1"), DeviceState(brightness=70)), executor)
+    assert service.state("bulb-1") == DeviceState(power=True, brightness=70)
+
+
+def test_a_slow_offline_member_does_not_delay_the_others():
+    release = threading.Event()
+
+    class HangingFake(FakeDevice):
+        def apply(self, changes: DeviceState) -> DeviceState:
+            release.wait(timeout=5)  # a socket timeout
+            raise DeviceError("timeout")
+
+    slow = HangingFake("bulb-slow", "bulb-slow", DeviceType.RGB_BULB, BULB)
+    fast = bulb("bulb-fast")
+    service = ControlService([slow, fast])
+    fast_done = threading.Event()
+    service.state_changed.connect(lambda device_id, _: fast_done.set())
+    try:
+        result = service.send(ALL_BULBS, DeviceState(power=True))
+        assert fast_done.wait(timeout=5)
+        assert not result.done()
+        release.set()
+        assert result.result(timeout=5) == CommandResult(
+            succeeded=("bulb-fast",), failed=("bulb-slow",)
+        )
+    finally:
+        release.set()
+        service.shutdown()
+
+
+def test_more_devices_than_the_minimum_pool_still_run_in_parallel():
+    count = 10
+    barrier = threading.Barrier(count, timeout=5)
+    devices = [
+        BlockingFake(f"bulb-{n}", f"bulb-{n}", DeviceType.RGB_BULB, BULB, barrier=barrier)
+        for n in range(count)
+    ]
+    service = ControlService(devices)
+    try:
+        result = service.send(ALL_BULBS, DeviceState(power=True)).result(timeout=10)
+    finally:
+        service.shutdown()
+    assert len(result.succeeded) == count

@@ -1,6 +1,6 @@
 """Control service, groups, targets and scenes. Works with generic devices only."""
 
-from homedock.core.control import CommandResult, ControlService
+from homedock.core.control import CommandResult, ControlService, ServiceClosedError
 from homedock.core.events import Event
 from homedock.core.groups import Group, GroupBook
 from homedock.core.scenes import Scene, SceneBook
@@ -14,6 +14,7 @@ __all__ = [
     "GroupBook",
     "Scene",
     "SceneBook",
+    "ServiceClosedError",
     "Target",
     "TargetKind",
     "available_targets",

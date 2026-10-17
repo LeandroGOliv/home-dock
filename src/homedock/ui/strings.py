@@ -36,6 +36,20 @@ BACK = "Voltar"
 
 SEPARATOR = " · "
 
+# Control panels: hue ring and temperature arc
+HUE = "Cor"
+TEMPERATURE = "Temperatura do branco"
+WARM = "Quente"
+NEUTRAL = "Neutro"
+COLD = "Frio"
+
+
+def temperature_label(temperature: int) -> str:
+    """The kind of white of a colour temperature (0 = warmest, 100 = coldest)."""
+    if temperature <= 33:
+        return WARM
+    return COLD if temperature >= 67 else NEUTRAL
+
 
 @dataclass(frozen=True, slots=True)
 class Noun:

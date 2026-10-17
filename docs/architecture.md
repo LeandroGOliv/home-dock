@@ -214,7 +214,7 @@ refresh IPs, and warns when a Tuya device on the LAN is missing from `devices.js
 
 Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py`,
 `icons.py`, `flyout.py`, `placement.py`, `target_model.py`, `selector.py`, `panels.py`,
-`theme.py`, `widgets.py`, `strings.py`. The UI may import `core`, `storage`,
+`theme.py`, `widgets.py`, `dial_math.py`, `dials.py`, `strings.py`. The UI may import `core`, `storage`,
 `masking` and the public `homedock.devices` API only (guarded by a test).
 
 - **Start-up** — `homedock` (`__main__` → `ui.app.run()`): takes the single-instance lock
@@ -292,8 +292,27 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
 - **Theme** (`theme.py`) — colours, sizes and fonts measured on the mockups (dark theme,
   accent `#F2B544`, Segoe UI Variable/Segoe UI, 14/13 px). Widgets read them only from
   there; following the Windows theme and accent (issue #13) replaces these values.
-- **Custom widgets** — hue ring and CCT arc drawn with `QPainter`
-  (`QConicalGradient`), click + drag, pure-function geometry/maths tested separately.
+- **Hue ring and temperature arc** (`dials.py`) — `HueRing` and `TemperatureArc`, 220 px
+  dials painted with `QPainter` (`QConicalGradient` band, white marker with a faint dark
+  outline so it shows on the light whites). The hue ring goes round 360°, red at the top
+  and clockwise; its centre shows one preview circle of the colour at full brightness
+  (hue + saturation) and the hex code. The arc spans 270°, open at the bottom, warm
+  (0 %) on the left → neutral at the top → cold (100 %) on the right; its centre shows the
+  tint of the white and "Quente" / "Neutro" / "Frio". Both share the `Dial` base:
+  - a press on the band starts a drag and moves the marker there; a press on the marker
+    grabs it without moving it (the drag keeps the grab offset); presses elsewhere — and
+    in the arc's opening — are ignored. The marker then follows the pointer's angle, also
+    off the band; a drag into the arc's opening stays at the end it came from until the
+    pointer comes back onto that end's half, so it never jumps from cold to warm;
+  - `moved(int)` reports every new value while the button is held, `released(int)` the
+    final one when the value changed during the press (a click is a press + release).
+    Hiding or disabling a dial mid-drag (the flyout closing) ends the drag the same way;
+  - `set_value()` (state from the device) emits nothing and is ignored during a drag, so
+    a late answer does not make the marker jump back under the pointer.
+
+  The maths (`dial_math.py`, no Qt) are pure functions: compass angles, angle ↔ hue,
+  angle ↔ temperature with the dead zone and the drag across it, positions on a conical gradient, HSV ↔ hex and
+  colour blending. `scripts/dials_demo.py` shows both dials in a window (no device).
 - **Strings** — pt-BR, centralised in one module.
 
 ## Resilience

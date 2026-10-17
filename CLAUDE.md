@@ -44,6 +44,7 @@ uv run ruff check . ; uv run ruff format --check .         # lint / format check
 uv run pre-commit run --all-files                          # every hook
 uv run python scripts/diagnose.py --dry-run                # read real bulbs (no changes)
 uv run python scripts/diagnose.py --only 1 --tests power   # exercise one bulb (restores state)
+uv run python scripts/dials_demo.py                        # hue ring / CCT arc demo window
 uv run pyinstaller packaging/HomeDock.spec                 # build dist\HomeDock.exe
 ```
 

@@ -86,3 +86,17 @@ def test_redacting_filter_masks_the_stack_info():
     log_filter.add("a1b2c3d4e5f6a7b8")
     log_filter.filter(record)
     assert "a1b2c3d4e5f6a7b8" not in record.stack_info
+
+
+@pytest.mark.parametrize("suffix", [".", "...", ":6668", ",", ")"])
+def test_redacting_filter_masks_ipv4_followed_by_punctuation(suffix):
+    assert RedactingFilter().redact(f"timeout at 192.0.2.10{suffix}") == f"timeout at 19…10{suffix}"
+
+
+def test_redacting_filter_ignores_longer_dotted_numbers():
+    assert RedactingFilter().redact("build 1.2.3.4.5") == "build 1.2.3.4.5"
+
+
+def test_redact_is_case_insensitive():
+    assert redact("mac 00:00:00:AA:BB:20", ["00:00:00:aa:bb:20"]) == "mac 00…20"
+    assert redact("id BF0000AA", ["bf0000aa"]) == "id BF…AA"

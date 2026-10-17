@@ -9,7 +9,8 @@ import logging
 import re
 from collections.abc import Iterable
 
-IPV4 = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
+# Four dotted numbers, not part of a longer dotted number (a trailing "." is punctuation).
+IPV4 = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?!\.?\d)")
 
 
 def mask(value: object) -> str:
@@ -23,10 +24,11 @@ def mask(value: object) -> str:
 
 
 def redact(text: str, secrets: Iterable[object]) -> str:
-    """Replace every occurrence of each secret in ``text`` by its masked form."""
+    """Replace every occurrence of each secret in ``text`` (ignoring case) by its masked form."""
     values = {str(s) for s in secrets if s}
     for secret in sorted(values, key=len, reverse=True):
-        text = text.replace(secret, mask(secret))
+        pattern = re.compile(re.escape(secret), re.IGNORECASE)
+        text = pattern.sub(lambda m: mask(m.group()), text)
     return text
 
 

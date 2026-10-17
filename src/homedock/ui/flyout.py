@@ -7,6 +7,7 @@ from PySide6.QtGui import QCursor, QFont, QGuiApplication, QKeyEvent
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from homedock.ui import strings
+from homedock.ui.placement import flyout_position
 
 WIDTH = 360
 MARGIN = 12  # gap to the screen edge / taskbar
@@ -41,14 +42,11 @@ class PlaceholderFlyout(QWidget):
             self.open()
 
     def open(self) -> None:
-        """Show in the bottom-right corner of the screen under the cursor, above the taskbar."""
+        """Show in the tray corner of the screen under the cursor, next to the taskbar."""
         self.adjustSize()
         screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
-        area = screen.availableGeometry()
         size = self.frameGeometry().size()
-        self.move(
-            area.right() - size.width() - MARGIN + 1, area.bottom() - size.height() - MARGIN + 1
-        )
+        self.move(flyout_position(screen.geometry(), screen.availableGeometry(), size, MARGIN))
         self.show()
         self.raise_()
         self.activateWindow()

@@ -92,3 +92,30 @@ def test_core_imports_only_the_generic_device_api(path):
             if module == "homedock.devices":
                 extra = set(names) - set(homedock.devices.__all__)
                 assert not extra, f"{path.name} imports device internals: {extra}"
+
+
+STORAGE = sorted((PACKAGE / "storage").rglob("*.py"))
+STORAGE_MAY_IMPORT = re.compile(r"homedock\.(storage(\.\w+)?|core(\.\w+)?|devices|masking)")
+
+
+@pytest.mark.parametrize("path", STORAGE, ids=lambda p: p.name)
+def test_storage_never_imports_the_ui_or_qt(path):
+    source = path.read_text(encoding="utf-8")
+    assert not re.search(r"^\s*(from|import)\s+(homedock\.ui|PySide6)\b", source, re.MULTILINE)
+    assert not re.search(r"\bRgbBulb\b", source)
+
+
+@pytest.mark.parametrize("path", STORAGE, ids=lambda p: p.name)
+def test_storage_imports_only_the_public_device_api(path):
+    import homedock.devices
+
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("homedock"):
+            assert STORAGE_MAY_IMPORT.fullmatch(node.module), f"{path.name} imports {node.module}"
+            if node.module == "homedock.devices":
+                extra = {alias.name for alias in node.names} - set(homedock.devices.__all__)
+                assert not extra, f"{path.name} imports device internals: {extra}"
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                assert not alias.name.startswith("homedock"), f"{path.name} imports {alias.name}"

@@ -187,7 +187,7 @@ when `APPDATA` is unset), never in the repo or the working directory:
   Scene states use `DeviceState.to_dict()` / `from_dict()` (defined in the device layer,
   so a new capability brings its own encoding). Missing sections take their defaults and
   unknown keys are ignored. `MIGRATIONS[n]` upgrades a schema-n document to n + 1;
-  `migrate()` applies them in order on load. Saving always writes the current schema.
+  `migrate()` applies them in order on load (a missing step is a `ConfigError`). Saving always writes the current schema.
 - **Atomic writes** — `write_atomic()` writes a temporary file in the same folder,
   fsyncs it and renames it over the target (`os.replace`); on failure the old file is
   kept and the temporary file removed.
@@ -196,9 +196,11 @@ when `APPDATA` is unset), never in the repo or the working directory:
   starts from the defaults (`LoadedConfig.backup` tells the UI). Validation is
   all-or-nothing: one invalid entry makes the whole file corrupt.
 - **Logs** — `logs\homedock.log`, rotating (1 MB × 3 backups), UTF-8, attached to the
-  root logger so library logs are covered too. A `RedactingFilter` on the handler masks
-  the secrets imported from `devices.json` and **any IPv4 address** in the message, the
-  exception text and the stack info.
+  root logger so library logs are covered too (calling `setup_logging()` again replaces
+  the handler). A `RedactingFilter` on the handler masks the secrets imported from
+  `devices.json` (ignoring letter case) and **any IPv4 address** in the message, the
+  exception text and the stack info. Load errors log only the error type, never values
+  read from the files.
 - **Start-up** — `open_app_data()` sets up the logs, imports the devices (registering
   their secrets in the log filter), loads the config and writes the default `config.json`
   when there is none. `AppData.save(config)` persists changes. `homedock` (`__main__`)

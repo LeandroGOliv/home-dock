@@ -218,12 +218,16 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
 
 - **Start-up** — `homedock` (`__main__` → `ui.app.run()`): takes the single-instance lock
   (a named Windows mutex, `Local\HomeDock.SingleInstance`; a second launch exits at once,
-  before touching any file), runs the storage start-up, builds the `ControlService` over
+  before touching any file — also when the first one runs with other rights, e.g.
+  elevated, and the mutex cannot even be opened), runs the storage start-up, builds the `ControlService` over
   the imported devices and shows the tray. The app does not quit when a window closes;
   "Sair" quits, and the service is shut down on the way out.
 - **Thread bridge** — `ServiceBridge` (a `QObject` on the UI thread) re-emits the service
   events (`state_changed`, `online_changed`) as Qt signals and runs future callbacks
-  (`when_done`) on the UI thread, always queued. Widgets are never touched from workers.
+  (`when_done`) on the UI thread, always queued (never re-entrant). Widgets are never
+  touched from workers. Events and callbacks share one queue, so after `detach()` nothing
+  more is delivered, not even what was already posted: closing the tray while a bulb is
+  still answering is safe.
 - **Tray icon** — painted bulb icon (no image files), tooltip "HomeDock". Left click
   toggles the flyout. Right-click menu: Abrir painel · Ligar todos · Desligar todos ·
   per-device toggle · Cenas ▸ · Iniciar com o Windows ☑ · Sair.

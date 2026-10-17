@@ -504,6 +504,20 @@ def test_the_power_button_keeps_the_requested_state_while_members_answer(home, e
     assert [d.state.power for d in devices[:2]] == [False, False]
 
 
+def test_a_pending_power_command_does_not_hold_the_button_of_another_target(home, executor, qtbot):
+    flyout, devices = home(store=FakeStore(Target.device("b1")))
+    flyout.open()
+    settle(executor)
+
+    press_power(flyout, qtbot)  # b1 on, still pending on the worker
+    choose(flyout, Target.device("b2"), qtbot)
+
+    assert not flyout.main.power_button.isChecked()  # b2 is off
+    settle(executor)
+    assert not flyout.main.power_button.isChecked()
+    assert [d.state.power for d in devices] == [True, False, False]
+
+
 def test_power_commands_run_on_workers_not_on_the_ui_thread(home, executor, qtbot):
     flyout, devices = home()
     flyout.open()
@@ -585,6 +599,19 @@ def test_the_list_takes_the_place_of_the_panel_while_open(home, panels, qtbot):
 
     qtbot.mouseClick(flyout.main.target_button, Qt.MouseButton.LeftButton)
     assert flyout.main.panel.isVisible()
+
+
+def test_reopening_rebuilds_the_panel_when_the_members_changed(make_flyout, panels):
+    flyout = make_flyout(bulb("b1"), groups=[Group("g1", "Sala", ())], panels=panels)
+    flyout.main.select(Target.group("g1"))
+    flyout.open()
+    assert flyout.main.panel is None  # an empty group has no panel
+
+    flyout.hide()
+    flyout.main.service.groups.set_members("g1", ["b1"])
+    flyout.open()
+
+    assert isinstance(flyout.main.panel, BulbPanel)
 
 
 def test_without_a_registered_panel_only_the_selector_is_shown(home):

@@ -207,6 +207,7 @@ class TargetList(QFrame):
         super().__init__(parent)
         self.rows: dict[Target, TargetRow] = {}
         self._shape: list[tuple[str, list[Target]]] = []
+        self._max_height = theme.LIST_MAX_HEIGHT
 
         self._content = QWidget()
         self._rows = QVBoxLayout(self._content)
@@ -249,6 +250,7 @@ class TargetList(QFrame):
     def _rebuild(self, model: TargetModel) -> None:
         while (item := self._rows.takeAt(0)) is not None:
             if (widget := item.widget()) is not None:
+                widget.hide()  # not painted again until the deferred delete
                 widget.deleteLater()
         self.rows = {}
         for index, section in enumerate(model.sections):
@@ -261,9 +263,18 @@ class TargetList(QFrame):
                 self._rows.addWidget(row)
                 self.rows[entry.target] = row
         self._rows.activate()
+        self._fit_scroll()
+
+    def set_max_height(self, height: int) -> None:
+        """Keep the whole list (border and footer included) within ``height``; the rows
+        scroll beyond it."""
+        self._max_height = height
+        self._fit_scroll()
+
+    def _fit_scroll(self) -> None:
         content = self._content.sizeHint().height()
-        footer = theme.ROW_HEIGHT + _Divider.HEIGHT + 3
-        self._scroll.setFixedHeight(min(content, theme.LIST_MAX_HEIGHT - footer))
+        footer = theme.ROW_HEIGHT + _Divider.HEIGHT + 3 + 2  # link, divider, margins, border
+        self._scroll.setFixedHeight(max(min(content, self._max_height - footer), theme.ROW_HEIGHT))
 
     def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)

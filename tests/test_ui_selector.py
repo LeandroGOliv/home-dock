@@ -6,6 +6,7 @@ from PySide6.QtGui import QImage
 
 from homedock.core import Target
 from homedock.devices import DeviceType
+from homedock.ui import theme
 from homedock.ui.selector import TEXT_GAP, PowerButton, TargetButton, TargetList, split_row
 from homedock.ui.target_model import Section, TargetEntry, TargetModel
 
@@ -84,6 +85,16 @@ def test_a_new_target_rebuilds_the_rows(target_list):
     target_list.set_model(model(entry(first, "Lâmpada 1"), entry(second, "Lâmpada 2")), ALL)
 
     assert list(target_list.rows) == [ALL, first, second]
+
+
+def test_a_long_list_scrolls_within_its_maximum_height(target_list):
+    lamps = [entry(Target.device(f"b{n}"), f"Lâmpada {n}") for n in range(30)]
+    target_list.set_model(model(*lamps), ALL)
+    assert target_list.sizeHint().height() <= theme.LIST_MAX_HEIGHT
+
+    target_list.set_max_height(300)
+
+    assert target_list.sizeHint().height() <= 300
 
 
 def test_clicking_a_row_chooses_its_target(target_list, qtbot):

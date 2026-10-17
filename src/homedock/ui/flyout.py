@@ -15,7 +15,7 @@ from collections.abc import Callable, Mapping
 from concurrent.futures import Future
 from typing import Any
 
-from PySide6.QtCore import QEvent, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QCursor, QGuiApplication, QKeyEvent, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 
 # A click on the tray icon first takes the focus away from the flyout (hiding it), then
 # toggles it: within this many seconds of such a hide, the toggle must not reopen it.
-REOPEN_GUARD = 0.3
+REOPEN_GUARD = 0.5
 
 
 class PageStack(QWidget):
@@ -103,7 +103,7 @@ class MainPage(QWidget):
         self._last_target = last_target
         self._set_last_target = set_last_target
         self._target: Target | None = None
-        self._pending_power = 0  # power commands still running
+        self._pending_power: dict[Target, int] = {}  # power commands still running
         self.panel: QWidget | None = None
 
         self.target_button = TargetButton()
@@ -143,7 +143,8 @@ class MainPage(QWidget):
         self.target_button.setChecked(False)
         model = build_model(self.service, self._names())
         preferred = self._target if self._target is not None else self._last_target()
-        self._set_target(model.choose(preferred))
+        self._target = model.choose(preferred)
+        self._rebuild_panel()  # the members, hence the panel type, may have changed
         self._sync()
         for device_type in dict.fromkeys(d.type for d in self.service.devices):
             self._track(self.service.refresh(Target.all_of(device_type)))
@@ -152,7 +153,8 @@ class MainPage(QWidget):
         """Control ``target`` from now on (remembered for the next start) and re-read it."""
         self.target_button.setChecked(False)
         if target != self._target:
-            self._set_target(target)
+            self._target = target
+            self._rebuild_panel()
             try:
                 self._set_last_target(target)
             except OSError as error:
@@ -160,12 +162,12 @@ class MainPage(QWidget):
         self._sync()
         self._track(self.service.refresh(target))
 
-    def _set_target(self, target: Target | None) -> None:
-        if target == self._target:
-            return
-        self._target = target
+    def _rebuild_panel(self) -> None:
+        """The panel registered for the target's device type, if any."""
+        target = self._target
         if self.panel is not None:
             self._content_layout.removeWidget(self.panel)
+            self.panel.hide()
             self.panel.deleteLater()
             self.panel = None
         if target is not None:
@@ -177,7 +179,8 @@ class MainPage(QWidget):
 
     def _sync(self, *_args: object) -> None:
         """Show the cached state: header, power button and list. While a power command
-        runs, the button keeps the requested state (members answer one by one)."""
+        runs on the target, the button keeps the requested state (members answer one by
+        one)."""
         model = build_model(self.service, self._names())
         entry = model.find(self._target)
         if entry is None:
@@ -185,7 +188,7 @@ class MainPage(QWidget):
         else:
             self.target_button.set_target(entry.title, entry.subtitle)
         self.power_button.setEnabled(entry is not None and entry.can_power)
-        if not self._pending_power:
+        if not self._pending_power.get(self._target):
             self.power_button.setChecked(entry is not None and entry.on)
         self.target_list.set_model(model, self._target)
 
@@ -196,14 +199,17 @@ class MainPage(QWidget):
 
     def _switch(self, on: bool) -> None:
         # Qt has already flipped the button: it holds the requested power state.
-        if self._target is None:
+        target = self._target
+        if target is None:
             return
-        self._pending_power += 1
-        future = self.service.send(self._target, DeviceState(power=on))
-        self._bridge.when_done(future, self._on_switched)
+        self._pending_power[target] = self._pending_power.get(target, 0) + 1
+        future = self.service.send(target, DeviceState(power=on))
+        self._bridge.when_done(future, lambda _done: self._on_switched(target))
 
-    def _on_switched(self, _future: Future[Any]) -> None:
-        self._pending_power -= 1
+    def _on_switched(self, target: Target) -> None:
+        self._pending_power[target] -= 1
+        if not self._pending_power[target]:
+            del self._pending_power[target]
         self._sync()
 
     def _track(self, future: Future[Any]) -> None:
@@ -326,21 +332,28 @@ class Flyout(QWidget):
         self.pages.push(page)
 
     def _fit(self) -> None:
-        """Take the height of the current page and stay in the tray corner."""
+        """Take the height of the current page, within the screen, in the tray corner."""
+        screen = QGuiApplication.screenAt(QCursor.pos()) if not self.isVisible() else None
+        screen = screen or self.screen() or QGuiApplication.primaryScreen()
+        area = screen.availableGeometry()
+        room = area.height() - 2 * theme.MARGIN
+        target_list = self.main.target_list
+        target_list.set_max_height(theme.LIST_MAX_HEIGHT)
+        height = self._content_height()
+        if height > room and not target_list.isHidden():  # a small screen: the rows scroll
+            target_list.set_max_height(target_list.sizeHint().height() - (height - room))
+            height = self._content_height()
+        size = QSize(theme.WIDTH, height)
+        position = flyout_position(screen.geometry(), area, size, theme.MARGIN)
+        self.setFixedHeight(height)
+        self.setGeometry(QRect(position, size))  # one move: no jump while visible
+
+    def _content_height(self) -> int:
         layout = self.layout()
         layout.activate()
         if layout.hasHeightForWidth():
-            height = layout.totalHeightForWidth(theme.WIDTH)
-        else:
-            height = layout.totalSizeHint().height()
-        self.setFixedHeight(height)
-        screen = QGuiApplication.screenAt(QCursor.pos()) if not self.isVisible() else None
-        screen = screen or self.screen() or QGuiApplication.primaryScreen()
-        self.move(
-            flyout_position(
-                screen.geometry(), screen.availableGeometry(), self.size(), theme.MARGIN
-            )
-        )
+            return layout.totalHeightForWidth(theme.WIDTH)
+        return layout.totalSizeHint().height()
 
     # --- Qt events ----------------------------------------------------------------------
 

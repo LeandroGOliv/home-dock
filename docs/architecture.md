@@ -246,8 +246,9 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
   It opens in the tray corner of the screen under the cursor, on the taskbar's side
   (`placement.py`: bottom-right, top-right with the taskbar on top, bottom-left with it on
   the left; an auto-hidden taskbar counts as bottom), 12 px from the edges, and grows
-  upwards with its content. It hides on Esc and when it loses focus; a tray click within
-  0.3 s of such a hide does not reopen it (that click is what took the focus away).
+  upwards with its content (one geometry change, so it does not jump), never taller than
+  the available area. It hides on Esc and when it loses focus; a tray click within 0.5 s
+  of such a hide does not reopen it (that click is what took the focus away).
   "Abrir painel" always opens it. `toggle()` / `open()` are what the tray calls;
   `shutdown()` detaches its bridge when the app quits.
   - **Page stack** — `PageStack` shows only its top page; the main page is the base and
@@ -267,15 +268,17 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
     "offline"). Header subtitles: "Grupo · 2 de 3 online" (or "Grupo · 3 lâmpadas" before
     any member answered), "Lâmpada · online/offline". Wording per type comes from
     `strings.noun()` ("Lâmpada", "Todas as lâmpadas"); other types get generic words. The
-    list (`selector.py`) replaces the panel while open, scrolls beyond 520 px and updates
-    its rows in place when only state changed.
+    list (`selector.py`) replaces the panel while open, scrolls beyond 520 px (less on a
+    small screen) and updates its rows in place when only state changed.
   - **Power button** — checked when some reachable member of the target is on; a click
     sends `power` (the toggled value) to **the selected target only**, so a partly-on
     group is switched off. While the command runs the button keeps the requested state
-    (members answer one by one); afterwards it shows the cached state again, so a failure
+    (members answer one by one; tracked per target, so another target shows its own
+    state); afterwards it shows the cached state again, so a failure
     reverts it. Disabled when no member has the `power` capability.
 - **Panel registry** (`panels.py`) — `PanelRegistry.register(device_type, factory)`; the
-  main page asks `create(PanelContext(service, bridge, target))` on every target change.
+  main page asks `create(PanelContext(service, bridge, target))` on every target change
+  and every opening (the members may have changed).
   A target whose members are all of one registered type gets that type's panel; mixed
   groups, empty targets and types without a panel get the power button only. The
   registry is empty until the bulb panel issue (#10) registers `RgbBulbPanel`: tabs

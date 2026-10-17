@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 
@@ -41,3 +43,62 @@ def _bulb(size: int) -> QPixmap:
     painter.drawRoundedRect(QRectF(26, 55, 12, 5), 2, 2)
     painter.end()
     return pixmap
+
+
+# --- glyphs painted inside widgets ------------------------------------------------------------
+
+
+def _stroke(painter: QPainter, color: QColor, width: float = 1.5) -> None:
+    pen = QPen(color, width)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+
+
+def paint_power(painter: QPainter, rect: QRectF, color: QColor) -> None:
+    """The power symbol: a ring open at the top crossed by a vertical bar."""
+    painter.save()
+    _stroke(painter, color, 2)
+    ring = rect.adjusted(1.5, 2.5, -1.5, -0.5)
+    painter.drawArc(ring, 130 * 16, 280 * 16)  # Qt angles: 1/16°, counter-clockwise from 3h
+    centre = rect.center().x()
+    painter.drawLine(QPointF(centre, rect.top() + 0.5), QPointF(centre, rect.center().y()))
+    painter.restore()
+
+
+def paint_chevron(painter: QPainter, rect: QRectF, color: QColor, direction: Qt.Edge) -> None:
+    """A chevron pointing to ``direction`` (top, bottom, left or right)."""
+    painter.save()
+    _stroke(painter, color)
+    c = rect.center()
+    w, h = rect.width() * 0.3, rect.height() * 0.17  # half the span, half the depth
+    offsets = {
+        Qt.Edge.TopEdge: ((-w, h), (0, -h), (w, h)),
+        Qt.Edge.BottomEdge: ((-w, -h), (0, h), (w, -h)),
+        Qt.Edge.LeftEdge: ((h, -w), (-h, 0), (h, w)),
+        Qt.Edge.RightEdge: ((-h, -w), (h, 0), (-h, w)),
+    }[direction]
+    points = [QPointF(c.x() + dx, c.y() + dy) for dx, dy in offsets]
+    painter.drawPolyline(QPolygonF(points))
+    painter.restore()
+
+
+def paint_gear(painter: QPainter, rect: QRectF, color: QColor) -> None:
+    """An outlined cog with eight teeth."""
+    painter.save()
+    _stroke(painter, color)
+    c = rect.center()
+    outer = min(rect.width(), rect.height()) / 2 - 0.75
+    inner = outer * 0.74
+    outline = QPolygonF()
+    for tooth in range(8):
+        middle = tooth * 45
+        for offset, radius in ((-15, inner), (-9, outer), (9, outer), (15, inner)):
+            angle = math.radians(middle + offset)
+            outline.append(
+                QPointF(c.x() + radius * math.cos(angle), c.y() + radius * math.sin(angle))
+            )
+    painter.drawPolygon(outline)
+    painter.drawEllipse(c, outer * 0.32, outer * 0.32)
+    painter.restore()

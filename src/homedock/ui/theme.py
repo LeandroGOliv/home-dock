@@ -21,6 +21,10 @@ ACCENT = QColor("#F2B544")
 ON_ACCENT = QColor("#1A1A1A")  # icons and text drawn over the accent colour
 DEVICE_ON = QColor("#FF9F1C")  # dot of a device that is on
 DEVICE_OFF = QColor("#6B6B6B")  # ring of a device that is off or offline
+MARKER_BORDER = QColor("#FFFFFF")  # ring of the hue / temperature marker
+MARKER_SHADOW = QColor(0, 0, 0, 110)  # keeps the marker visible on the light whites
+# The temperature arc, warm → neutral → cold (evenly spaced); also the tint of its preview
+TEMPERATURE_COLORS = (QColor("#FFA957"), QColor("#FFF1E0"), QColor("#C9DAFF"))
 
 # Sizes, in device-independent pixels (the mockups are drawn at 2x)
 WIDTH = 360
@@ -40,6 +44,13 @@ SELECTION_BAR = (4, 16)  # width, height
 DOT = 10
 ICON = 16
 LIST_MAX_HEIGHT = 520  # beyond this the target list scrolls
+DIAL_SIZE = 220  # outer diameter of the hue ring and the temperature arc
+DIAL_BAND = 24  # width of the coloured band
+DIAL_MARKER = 22
+DIAL_MARKER_BORDER = 3
+DIAL_PREVIEW = 56  # the colour preview in the middle
+DIAL_PREVIEW_OFFSET = 13  # preview centre above the dial centre
+DIAL_LABEL_OFFSET = 34  # hex code / label centre below the dial centre
 
 # Fonts (pixel sizes)
 FAMILIES = ["Segoe UI Variable Text", "Segoe UI"]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, fields, replace
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
@@ -84,6 +84,53 @@ class DeviceState:
         """A copy with every value set in ``changes`` applied on top."""
         updates = {c.value: changes.get(c) for c in changes.capabilities}
         return replace(self, **updates)
+
+    def to_dict(self) -> dict[str, Any]:
+        """The values that are set, keyed by capability, as JSON-compatible types."""
+        return {c.value: _encode(self.get(c)) for c in Capability if self.get(c) is not None}
+
+    @classmethod
+    def from_dict(cls, data: object) -> DeviceState:
+        """Inverse of :meth:`to_dict`. Unknown keys are ignored; bad values raise ``ValueError``."""
+        if not isinstance(data, Mapping):
+            raise ValueError("device state must be a mapping")
+        values = {c.value: _DECODERS[c](data[c.value]) for c in Capability if c.value in data}
+        return cls(**values)
+
+
+def _encode(value: object) -> object:
+    if isinstance(value, Color):
+        return {"hue": value.hue, "saturation": value.saturation}
+    if isinstance(value, StrEnum):
+        return value.value
+    return value
+
+
+def _decode_bool(value: object) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"expected a boolean, got {value!r}")
+    return value
+
+
+def _decode_int(value: object) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"expected an integer, got {value!r}")
+    return value
+
+
+def _decode_color(value: object) -> Color:
+    if not isinstance(value, Mapping) or not {"hue", "saturation"} <= value.keys():
+        raise ValueError(f"expected a hue/saturation mapping, got {value!r}")
+    return Color(_decode_int(value["hue"]), _decode_int(value["saturation"]))
+
+
+_DECODERS: dict[Capability, Callable[[object], Any]] = {
+    Capability.POWER: _decode_bool,
+    Capability.WORK_MODE: WorkMode,
+    Capability.BRIGHTNESS: _decode_int,
+    Capability.COLOR_HSV: _decode_color,
+    Capability.COLOR_TEMPERATURE: _decode_int,
+}
 
 
 @runtime_checkable

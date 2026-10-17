@@ -200,3 +200,8 @@ def test_a_corrupt_file_that_cannot_be_backed_up_still_loads_the_defaults(tmp_pa
     loaded = load_config(path)
     assert loaded.config == Config()
     assert loaded.backup is None
+
+
+def test_migrate_with_a_missing_step_raises_config_error():
+    with pytest.raises(ConfigError):
+        migrate({"schema": 1}, migrations={}, current=2)

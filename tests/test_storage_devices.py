@@ -98,3 +98,12 @@ def test_importing_never_modifies_the_file(tmp_path):
     import_devices(path)
     assert path.read_bytes() == before
     assert [p.name for p in tmp_path.iterdir()] == ["devices.json"]
+
+
+def test_short_values_are_not_treated_as_secrets(tmp_path):
+    # Masking "1" or "abc" would garble unrelated log text.
+    path = write(tmp_path / "devices.json", [{**PLUG, "sn": "abc", "uuid": "12345"}])
+    secrets = import_devices(path).secrets
+    assert "abc" not in secrets
+    assert "12345" not in secrets
+    assert "plugkey000000000" in secrets

@@ -69,7 +69,8 @@ def load_config(path: Path) -> LoadedConfig:
     try:
         return LoadedConfig(config_from_dict(json.loads(text)))
     except ValueError as error:
-        log.error("invalid config file, starting from the defaults: %s", error)
+        # Only the error type: the message may quote values of the file (e.g. device IDs).
+        log.error("invalid config file, starting from the defaults: %s", type(error).__name__)
         return LoadedConfig(Config(), _back_up(path))
 
 
@@ -106,6 +107,8 @@ def migrate(
     if version > current:
         raise ConfigError(f"schema {version} is newer than {current}")
     while version < current:
+        if version not in migrations:
+            raise ConfigError(f"no migration from schema {version}")
         data = migrations[version](data)
         version += 1
         data["schema"] = version

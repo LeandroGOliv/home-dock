@@ -70,3 +70,11 @@ def test_the_log_file_rotates(tmp_path, logger):
         f"{LOG_FILE}.1",
         f"{LOG_FILE}.2",
     ]
+
+
+def test_setting_up_twice_does_not_duplicate_lines(tmp_path, logger):
+    setup_logging(tmp_path, logger=logger)
+    setup_logging(tmp_path, logger=logger)
+    logger.info("once")
+    assert read_logs(tmp_path).count("once") == 1
+    assert sum(isinstance(h, logging.FileHandler) for h in logger.handlers) == 1

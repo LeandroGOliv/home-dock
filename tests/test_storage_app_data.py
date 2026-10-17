@@ -101,3 +101,41 @@ def test_main_writes_only_under_appdata_homedock(tmp_path, monkeypatch, capsys):
     assert all_files(cwd) == set()
     assert all_files(home) == set()
     assert "HomeDock" in capsys.readouterr().err
+
+
+def test_an_invalid_config_never_logs_the_device_ids_it_contains(tmp_path):
+    paths = AppPaths(tmp_path / "HomeDock")
+    paths.root.mkdir()
+    config = {"schema": 1, "scenes": [{"id": "s", "name": "L", "devices": {"d": {"power": "x"}}}]}
+    config["scenes"][0]["devices"]["d"]["power"] = EXAMPLE_ENTRY["id"]
+    paths.config_file.write_text(json.dumps(config), encoding="utf-8")
+
+    open_app_data(paths)
+
+    log = (paths.logs_dir / LOG_FILE).read_text(encoding="utf-8")
+    assert "invalid config file" in log
+    assert EXAMPLE_ENTRY["id"] not in log
+
+
+def test_an_unwritable_config_does_not_stop_the_start_up(tmp_path, monkeypatch):
+    import homedock.storage.app_data as app_data_module
+
+    def fail(*_args):
+        raise PermissionError("read-only")
+
+    monkeypatch.setattr(app_data_module, "save_config", fail)
+    paths = AppPaths(tmp_path / "HomeDock")
+
+    data = open_app_data(paths)
+
+    assert data.config == Config()
+    assert "cannot write the config file" in (paths.logs_dir / LOG_FILE).read_text("utf-8")
+
+
+def test_library_logs_are_masked_too(tmp_path):
+    paths = AppPaths(tmp_path / "HomeDock")
+    open_app_data(paths)
+    logging.getLogger("some.library").warning("connected to 192.0.2.55.")
+    log = (paths.logs_dir / LOG_FILE).read_text(encoding="utf-8")
+    assert "192.0.2.55" not in log
+    assert "19…55." in log

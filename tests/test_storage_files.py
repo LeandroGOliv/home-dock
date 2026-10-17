@@ -53,3 +53,13 @@ def test_a_failed_write_keeps_the_old_file_and_leaves_no_temp_file(monkeypatch, 
         write_atomic(target, "new")
     assert target.read_text(encoding="utf-8") == "old"
     assert os.listdir(tmp_path) == ["config.json"]
+
+
+def test_a_failure_while_writing_leaves_no_temp_file(monkeypatch, tmp_path):
+    def fail(_fd):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "fsync", fail)
+    with pytest.raises(OSError):
+        write_atomic(tmp_path / "config.json", "new")
+    assert os.listdir(tmp_path) == []

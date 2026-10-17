@@ -213,7 +213,8 @@ refresh IPs, and warns when a Tuya device on the LAN is missing from `devices.js
 ## UI
 
 Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py`,
-`icons.py`, `flyout.py` (placeholder), `strings.py`. The UI may import `core`, `storage`,
+`icons.py`, `flyout.py`, `placement.py`, `target_model.py`, `selector.py`, `panels.py`,
+`theme.py`, `widgets.py`, `strings.py`. The UI may import `core`, `storage`,
 `masking` and the public `homedock.devices` API only (guarded by a test).
 
 - **Start-up** — `homedock` (`__main__` → `ui.app.run()`): takes the single-instance lock
@@ -241,22 +242,55 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
   - "Iniciar com o Windows" only saves `settings.start_with_windows` for now (the Windows
     `Run` entry comes with the packaging issue); a failed save reverts the check mark.
   - `&` in names is escaped so it is not taken as a keyboard shortcut.
-- **Placeholder flyout** — until the flyout issue: a frameless 360 px window in the
-  bottom-right corner of the available screen area, toggled by the tray icon, hidden with
-  Esc. It exposes `toggle()` / `open()`, the interface the tray expects from the flyout.
-- **Flyout** — ~360 px wide, anchored near the tray, Windows 11 style, closes when it loses
-  focus. One window with a **page stack**:
-  - Main: target selector (groups + devices with online status) + power button for the
-    target; control panel for the target type; scenes grid (3 columns, scroll) with
-    "+ Salvar atual"; right-click on a scene → Renomear / Sobrescrever / Excluir.
-  - Gerenciar grupos e lâmpadas → Editar grupo (name, members, delete).
-- **Panel registry** — maps device type/capabilities → panel widget. `RgbBulbPanel`:
-  tabs Branco | Cor; white = CCT arc (~270°, open at the bottom, warm left → cold right);
+- **Flyout** (`flyout.py`) — a frameless 360 px tool window with painted rounded corners.
+  It opens in the tray corner of the screen under the cursor, on the taskbar's side
+  (`placement.py`: bottom-right, top-right with the taskbar on top, bottom-left with it on
+  the left; an auto-hidden taskbar counts as bottom), 12 px from the edges, and grows
+  upwards with its content. It hides on Esc and when it loses focus; a tray click within
+  0.3 s of such a hide does not reopen it (that click is what took the focus away).
+  "Abrir painel" always opens it. `toggle()` / `open()` are what the tray calls;
+  `shutdown()` detaches its bridge when the app quits.
+  - **Page stack** — `PageStack` shows only its top page; the main page is the base and
+    never popped. Each opening starts on the main page with the list closed.
+    "Gerenciar grupos e lâmpadas" pushes the manage page (navigation only until issue
+    #12), whose back button pops it.
+  - **Main page** — the target selector button (title + subtitle, chevron) and the
+    round power button, then the panel of the target. Opening the flyout re-reads names
+    and groups, keeps the target if it still exists (else the last target saved in
+    `settings.last_target`, else the first automatic group) and queues a `refresh` of
+    every device; the page updates live from the bridge events. Choosing a target closes
+    the list, saves it as `last_target` (a failed save is only logged) and re-reads it.
+  - **Target selector** — `target_model.build_model()` turns the service cache into
+    sections: "Grupos" (one automatic group per device type present, with its device
+    count, then the user groups with their members' display names) and one section per
+    device type (each device with a dot — filled when on and reachable — its groups and
+    "offline"). Header subtitles: "Grupo · 2 de 3 online" (or "Grupo · 3 lâmpadas" before
+    any member answered), "Lâmpada · online/offline". Wording per type comes from
+    `strings.noun()` ("Lâmpada", "Todas as lâmpadas"); other types get generic words. The
+    list (`selector.py`) replaces the panel while open, scrolls beyond 520 px and updates
+    its rows in place when only state changed.
+  - **Power button** — checked when some reachable member of the target is on; a click
+    sends `power` (the toggled value) to **the selected target only**, so a partly-on
+    group is switched off. While the command runs the button keeps the requested state
+    (members answer one by one); afterwards it shows the cached state again, so a failure
+    reverts it. Disabled when no member has the `power` capability.
+- **Panel registry** (`panels.py`) — `PanelRegistry.register(device_type, factory)`; the
+  main page asks `create(PanelContext(service, bridge, target))` on every target change.
+  A target whose members are all of one registered type gets that type's panel; mixed
+  groups, empty targets and types without a panel get the power button only. The
+  registry is empty until the bulb panel issue (#10) registers `RgbBulbPanel`: tabs
+  Branco | Cor; white = CCT arc (~270°, open at the bottom, warm left → cold right);
   colour = hue ring (360°) with a centre preview + hex; brightness slider (both modes);
   saturation slider (colour only).
+- **Scenes in the flyout** (issue #11) — scenes grid (3 columns, scroll) with
+  "+ Salvar atual"; right-click on a scene → Renomear / Sobrescrever / Excluir.
+- **Manage pages** (issue #12) — Gerenciar grupos e lâmpadas → Editar grupo (name,
+  members, delete).
+- **Theme** (`theme.py`) — colours, sizes and fonts measured on the mockups (dark theme,
+  accent `#F2B544`, Segoe UI Variable/Segoe UI, 14/13 px). Widgets read them only from
+  there; following the Windows theme and accent (issue #13) replaces these values.
 - **Custom widgets** — hue ring and CCT arc drawn with `QPainter`
   (`QConicalGradient`), click + drag, pure-function geometry/maths tested separately.
-- **Theme** — follows Windows light/dark and the Windows accent colour, live-updating.
 - **Strings** — pt-BR, centralised in one module.
 
 ## Resilience

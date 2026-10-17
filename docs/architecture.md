@@ -302,14 +302,16 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
   - a press on the band starts a drag and moves the marker there; a press on the marker
     grabs it without moving it (the drag keeps the grab offset); presses elsewhere — and
     in the arc's opening — are ignored. The marker then follows the pointer's angle, also
-    off the band; a drag into the arc's opening stops at the nearest end;
+    off the band; a drag into the arc's opening stays at the end it came from until the
+    pointer comes back onto that end's half, so it never jumps from cold to warm;
   - `moved(int)` reports every new value while the button is held, `released(int)` the
-    final one when the value changed during the press (a click is a press + release);
+    final one when the value changed during the press (a click is a press + release).
+    Hiding or disabling a dial mid-drag (the flyout closing) ends the drag the same way;
   - `set_value()` (state from the device) emits nothing and is ignored during a drag, so
     a late answer does not make the marker jump back under the pointer.
 
   The maths (`dial_math.py`, no Qt) are pure functions: compass angles, angle ↔ hue,
-  angle ↔ temperature with the dead zone, positions on a conical gradient, HSV ↔ hex and
+  angle ↔ temperature with the dead zone and the drag across it, positions on a conical gradient, HSV ↔ hex and
   colour blending. `scripts/dials_demo.py` shows both dials in a window (no device).
 - **Strings** — pt-BR, centralised in one module.
 

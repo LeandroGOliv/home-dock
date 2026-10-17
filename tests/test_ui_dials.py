@@ -202,6 +202,41 @@ def test_values_set_during_a_drag_are_ignored(ring, qtbot):
     assert ring.value() == 300
 
 
+def test_hiding_mid_drag_ends_the_drag(ring, qtbot):
+    signals = Recorder(ring)
+    press(qtbot, ring, at(ring, 90))
+    move(qtbot, ring, at(ring, 120))
+
+    ring.hide()  # e.g. the flyout closes under the pointer
+
+    assert signals.released == [120]
+    ring.show()
+    ring.set_value(200)
+    assert ring.value() == 200
+
+
+def test_disabling_mid_drag_ends_the_drag(ring, qtbot):
+    signals = Recorder(ring)
+    press(qtbot, ring, at(ring, 90))
+
+    ring.setEnabled(False)
+
+    assert signals.released == [90]
+    ring.setEnabled(True)
+    ring.set_value(200)
+    assert ring.value() == 200
+
+
+def test_a_drag_ended_without_a_change_reports_nothing(ring, qtbot):
+    ring.set_value(100)
+    signals = Recorder(ring)
+    press(qtbot, ring, at(ring, 100))  # grabs the marker
+
+    ring.hide()
+
+    assert signals.released == []
+
+
 def test_the_ring_shows_the_colour_at_full_brightness(ring):
     ring.set_color(28, 85)
 
@@ -260,6 +295,29 @@ def test_dragging_into_the_dead_zone_stops_at_the_nearest_end(arc, qtbot, start,
 
     assert signals.moved == moved
     assert signals.released == [moved[-1]]
+
+
+def test_dragging_through_the_dead_zone_does_not_jump_to_the_other_end(arc, qtbot):
+    signals = Recorder(arc)
+
+    press(qtbot, arc, at(arc, 90))
+    for angle in (130, 170, 190, 230):
+        move(qtbot, arc, at(arc, angle))
+    release(qtbot, arc, at(arc, 230))
+
+    assert signals.moved == [83, 98, 100]
+    assert signals.released == [100]
+
+
+def test_coming_back_onto_its_half_releases_the_end(arc, qtbot):
+    signals = Recorder(arc)
+
+    press(qtbot, arc, at(arc, 90))
+    move(qtbot, arc, at(arc, 180))
+    move(qtbot, arc, at(arc, 90))
+    release(qtbot, arc, at(arc, 90))
+
+    assert signals.moved == [83, 100, 83]
 
 
 def test_the_arc_shows_the_tint_and_the_kind_of_white(arc):

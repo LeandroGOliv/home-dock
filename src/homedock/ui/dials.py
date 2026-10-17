@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QConicalGradient,
+    QHideEvent,
     QMouseEvent,
     QPainter,
     QPainterPath,
@@ -27,9 +28,9 @@ from homedock.ui.dial_math import (
     ARC_SPAN,
     ARC_START,
     angle_to_hue,
-    angle_to_temperature,
     blend,
     compass_angle,
+    drag_temperature,
     gradient_position,
     hsv_to_hex,
     hue_to_angle,
@@ -145,6 +146,21 @@ class Dial(QWidget):
             event.ignore()
             return
         self._drag_to(event.position())
+        self._end_drag()
+
+    def hideEvent(self, event: QHideEvent) -> None:
+        self._end_drag()  # e.g. the flyout closed under the pointer: no release will come
+        super().hideEvent(event)
+
+    def changeEvent(self, event: QEvent) -> None:
+        if event.type() == QEvent.Type.EnabledChange and not self.isEnabled():
+            self._end_drag()
+        super().changeEvent(event)
+
+    def _end_drag(self) -> None:
+        """Finish the drag where it is, as if the button were released there."""
+        if not self._dragging:
+            return
         self._dragging = False
         if self._changed:
             self.released.emit(self._value)
@@ -263,11 +279,13 @@ class HueRing(Dial):
 class TemperatureArc(Dial):
     """The colour temperature arc: 270°, open at the bottom, warm on the left and cold on
     the right; the preview shows the tint of the white and its kind (quente / neutro /
-    frio). Presses in the opening are ignored; a drag into it stops at the nearest end."""
+    frio). Presses in the opening are ignored; a drag into it stops at the end it came
+    from, until the pointer comes back onto that end's half of the arc."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setAccessibleName(strings.TEMPERATURE)
+        self._held: int | None = None  # the end a drag into the opening is held at
         self._value_shown()
 
     def tint(self) -> str:
@@ -282,11 +300,16 @@ class TemperatureArc(Dial):
     def _angle(self) -> float:
         return temperature_to_angle(self._value)
 
-    def _value_at(self, angle: float) -> int:
-        return angle_to_temperature(angle)
-
     def _accepts(self, angle: float) -> bool:
         return in_arc(angle)
+
+    def _start_drag(self, grab: float) -> None:
+        super()._start_drag(grab)
+        self._held = None
+
+    def _value_at(self, angle: float) -> int:
+        value, self._held = drag_temperature(angle, self._value, self._held)
+        return value
 
     def _color(self) -> QColor:
         return QColor(self.tint())

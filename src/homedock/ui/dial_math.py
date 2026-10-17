@@ -64,6 +64,23 @@ def angle_to_temperature(angle: float) -> int:
     return round(offset / ARC_SPAN * 100)
 
 
+def drag_temperature(angle: float, current: int, held: int | None) -> tuple[int, int | None]:
+    """The colour temperature under ``angle`` during a drag, and the end it is held at.
+
+    A drag entering the opening holds the end it came from (the one nearer ``current``)
+    and stays there until the pointer comes back onto that end's half of the arc, so a
+    drag across the opening never jumps from one end to the other. ``held`` is what the
+    previous call returned (``None`` when the drag starts).
+    """
+    if not in_arc(angle):
+        end = held if held is not None else (0 if current < 50 else 100)
+        return end, end
+    value = angle_to_temperature(angle)
+    if held is None or (value < 50) == (held == 0):
+        return value, None
+    return held, held
+
+
 def _arc_offset(angle: float) -> float:
     return (angle - ARC_START) % 360
 

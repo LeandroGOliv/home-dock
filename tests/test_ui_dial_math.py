@@ -9,6 +9,7 @@ from homedock.ui.dial_math import (
     angle_to_temperature,
     blend,
     compass_angle,
+    drag_temperature,
     gradient_position,
     hex_to_hsv,
     hsv_to_hex,
@@ -146,6 +147,25 @@ def test_the_dead_zone_snaps_to_the_nearest_end(angle, temperature):
 )
 def test_in_arc(angle, inside):
     assert in_arc(angle) is inside
+
+
+@pytest.mark.parametrize(
+    ("angle", "current", "held", "result"),
+    [
+        (0, 40, None, (50, None)),  # on the arc: the value under the pointer
+        (170, 98, None, (100, 100)),  # into the opening from the cold end: held there
+        (190, 100, 100, (100, 100)),  # across the opening's middle: still held
+        (230, 100, 100, (100, 100)),  # onto the warm end: still held
+        (300, 100, 100, (100, 100)),  # anywhere on the warm half
+        (90, 100, 100, (83, None)),  # back on the cold half: released
+        (200, 10, None, (0, 0)),  # into the opening from the warm end
+        (45, 0, 0, (0, 0)),  # the cold half does not release the warm end
+        (250, 0, 0, (9, None)),
+        (170, 20, None, (0, 0)),  # through the centre from the warm half: the warm end
+    ],
+)
+def test_a_drag_through_the_opening_stays_at_the_end_it_came_from(angle, current, held, result):
+    assert drag_temperature(angle, current, held) == result
 
 
 @pytest.mark.parametrize("temperature", range(0, 101, 5))

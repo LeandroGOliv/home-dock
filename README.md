@@ -15,9 +15,9 @@ Na v1 o foco são as **lâmpadas RGB Wi-Fi da Positivo Casa Inteligente** (Tuya 
   destaque do sistema;
 - opção de iniciar com o Windows.
 
-> **Status:** em desenvolvimento. O ícone na bandeja e o menu já funcionam; o painel
-> (flyout) ainda não — acompanhe as
-> [issues](https://github.com/LeandroGOLiv/home-dock/issues) e milestones.
+> **Status:** em desenvolvimento. O ícone na bandeja, o menu e o painel (flyout) com o
+> seletor de alvo já funcionam; os controles de cor, brilho e cenas no painel ainda não —
+> acompanhe as [issues](https://github.com/LeandroGOLiv/home-dock/issues) e milestones.
 
 ## Requisitos
 
@@ -72,15 +72,20 @@ Rode `uv run homedock`. O HomeDock aparece como um ícone de lâmpada na bandeja
 vir, procure na seta **^** ao lado do relógio). Abrir o app de novo não cria um segundo
 ícone.
 
-- **Clique esquerdo:** abre/fecha o painel (por enquanto, só um aviso de "em breve").
+- **Clique esquerdo:** abre/fecha o painel, no canto da tela ao lado da bandeja. Ele fecha
+  ao clicar fora dele ou com **Esc**. No topo, escolha **o que controlar**: "Todas as
+  lâmpadas", um dos seus grupos ou uma lâmpada (com o status online/offline e os grupos
+  de cada uma). O botão redondo ao lado liga/desliga **só o que está selecionado**; o
+  HomeDock lembra a última escolha. **Gerenciar grupos e lâmpadas** ainda está em
+  construção.
 - **Clique direito:** menu com **Abrir painel**, **Ligar todos**, **Desligar todos**, uma
   opção por lâmpada (marcada = acesa; "offline" quando ela não responde), **Cenas** (aplica
   uma cena salva), **Iniciar com o Windows** e **Sair**. Por enquanto, **Iniciar com o
   Windows** só guarda a preferência; o registro no Windows chega junto com o
   `HomeDock.exe`.
 
-O estado das lâmpadas é lido de novo toda vez que o menu abre. Os comandos nunca travam o
-app, mesmo com uma lâmpada fora da tomada.
+O estado das lâmpadas é lido de novo toda vez que o menu ou o painel abre. Os comandos
+nunca travam o app, mesmo com uma lâmpada fora da tomada.
 
 ## Segurança
 

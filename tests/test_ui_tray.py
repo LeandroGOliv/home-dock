@@ -5,7 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 from enum import StrEnum
 
 import pytest
-from PySide6.QtWidgets import QSystemTrayIcon
+from PySide6.QtCore import QEvent
+from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from executors import ManualExecutor
 from homedock.core import ControlService, Scene, Target
@@ -13,6 +14,7 @@ from homedock.devices import Capability, DeviceError, DeviceState, DeviceType
 from homedock.devices.fake import FakeDevice
 from homedock.ui import strings
 from homedock.ui.tray import TrayController
+from ui_helpers import settle
 
 BULB = frozenset(Capability)
 
@@ -84,7 +86,7 @@ def make_tray(qtbot, executor):
 def open_menu(tray: TrayController, executor: ManualExecutor | None = None) -> None:
     tray.menu.aboutToShow.emit()
     if executor is not None:
-        executor.run_all()
+        settle(executor)
 
 
 def labels(tray: TrayController) -> list[str]:
@@ -211,7 +213,7 @@ def test_a_state_change_made_elsewhere_updates_the_menu(make_tray, executor):
     open_menu(tray, executor)
 
     tray.service.send(Target.device("b1"), DeviceState(power=True))
-    executor.run_all()
+    settle(executor)
 
     assert device_action(tray, "b1").isChecked()
 
@@ -224,7 +226,7 @@ def test_turn_all_on_reaches_every_device(make_tray, executor):
     tray = make_tray(*devices)
 
     action(tray, strings.TURN_ALL_ON).trigger()
-    executor.run_all()
+    settle(executor)
 
     assert [d.state.power for d in devices] == [True, True]
     assert all(device_action(tray, d.id).isChecked() for d in devices)
@@ -235,7 +237,7 @@ def test_turn_all_off_reaches_every_device(make_tray, executor):
     tray = make_tray(*devices)
 
     action(tray, strings.TURN_ALL_OFF).trigger()
-    executor.run_all()
+    settle(executor)
 
     assert [d.state.power for d in devices] == [False, False]
 
@@ -248,7 +250,7 @@ def test_turn_all_on_covers_every_device_type_with_power(make_tray, executor):
     tray = make_tray(bulb("b1"), fan)
 
     action(tray, strings.TURN_ALL_ON).trigger()
-    executor.run_all()
+    settle(executor)
 
     assert fan.state.power is True
 
@@ -260,7 +262,7 @@ def test_commands_run_on_workers_not_on_the_ui_thread(make_tray, executor):
     action(tray, strings.TURN_ALL_ON).trigger()
 
     assert device.applied == []
-    executor.run_all()
+    settle(executor)
     assert device.applied == [DeviceState(power=True)]
 
 
@@ -271,14 +273,14 @@ def test_a_device_item_toggles_only_that_device(make_tray, executor):
     open_menu(tray, executor)
 
     device_action(tray, "b1").trigger()
-    executor.run_all()
+    settle(executor)
 
     assert first.state.power is True
     assert second.applied == []
     assert device_action(tray, "b1").isChecked()
 
     device_action(tray, "b1").trigger()
-    executor.run_all()
+    settle(executor)
     assert first.state.power is False
 
 
@@ -289,10 +291,50 @@ def test_a_failed_toggle_shows_the_real_state_again(make_tray, executor):
     device.online = False
 
     device_action(tray, "b1").trigger()
-    executor.run_all()
+    settle(executor)
 
     assert not device_action(tray, "b1").isChecked()
     assert device_action(tray, "b1").text() == "Abajur · offline"
+
+
+def test_a_failed_toggle_on_a_device_already_offline_reverts_the_check_mark(make_tray, executor):
+    device = bulb("b1", "Abajur", online=False)
+    tray = make_tray(device)
+    open_menu(tray, executor)
+    item = device_action(tray, "b1")
+
+    item.trigger()  # no online/state event will follow: only the command's outcome
+    assert item.isChecked()
+    settle(executor)
+
+    assert not item.isChecked()
+
+
+def test_every_menu_opening_reads_the_devices_again(make_tray, executor):
+    class CountingDevice(FakeDevice):
+        reads = 0
+
+        def read_state(self) -> DeviceState:
+            self.reads += 1
+            return super().read_state()
+
+    device = CountingDevice("b1", "Abajur", DeviceType.RGB_BULB, BULB)
+    tray = make_tray(device)
+
+    open_menu(tray, executor)
+    open_menu(tray, executor)
+
+    assert device.reads == 2
+
+
+def test_turn_all_never_reaches_devices_without_power(make_tray, executor):
+    sensor = FakeDevice("s1", "Sensor", OtherType.SENSOR, frozenset({Capability.BRIGHTNESS}))
+    tray = make_tray(bulb("b1"), sensor)
+
+    action(tray, strings.TURN_ALL_ON).trigger()
+    settle(executor)
+
+    assert sensor.applied == []
 
 
 # --- scenes ---------------------------------------------------------------------------------
@@ -308,10 +350,11 @@ def test_the_scenes_submenu_lists_and_applies_the_saved_scenes(make_tray, execut
     assert [a.text() for a in submenu.actions()] == ["Leitura", "Filme"]
 
     submenu.actions()[0].trigger()
-    executor.run_all()
+    settle(executor)
 
     assert device.state.power is True
     assert device.state.brightness == 80
+    assert device_action(tray, "b1").isChecked()
 
 
 def test_the_scenes_submenu_follows_the_saved_scenes(make_tray):
@@ -348,6 +391,16 @@ def test_start_with_windows_shows_and_saves_the_preference(make_tray):
 
     assert settings.value is False
     assert not item.isChecked()
+
+
+def test_start_with_windows_follows_the_saved_setting_when_the_menu_opens(make_tray):
+    settings = FakeSettings(value=False)
+    tray = make_tray(bulb("b1"), settings=settings)
+
+    settings.value = True
+    open_menu(tray)
+
+    assert action(tray, strings.START_WITH_WINDOWS).isChecked()
 
 
 def test_start_with_windows_reverts_when_saving_fails(make_tray):
@@ -396,6 +449,7 @@ class HangingDevice(FakeDevice):
         super().__init__(*args, **kwargs)
         self.started = threading.Event()
         self.release = threading.Event()
+        self.finished = threading.Event()
 
     def read_state(self) -> DeviceState:
         return self._hang()
@@ -405,7 +459,8 @@ class HangingDevice(FakeDevice):
 
     def _hang(self) -> DeviceState:
         self.started.set()
-        self.release.wait(timeout=10)
+        self.release.wait(timeout=30)  # a blocked UI thread would sit out the whole wait
+        self.finished.set()
         raise DeviceError("timed out")
 
 
@@ -418,9 +473,10 @@ def test_the_ui_stays_responsive_while_a_bulb_does_not_answer(make_tray, qtbot):
         assert device.started.wait(timeout=5)
 
         # The bulb is still hanging, yet the menu keeps working.
+        open_menu(tray)
         action(tray, strings.TURN_ALL_ON).trigger()
         device_action(tray, "b1").trigger()
-        assert not device.release.is_set()
+        assert not device.finished.is_set()
 
         device.release.set()
         qtbot.waitUntil(lambda: device_action(tray, "b1").text() == "Abajur · offline")
@@ -429,3 +485,15 @@ def test_the_ui_stays_responsive_while_a_bulb_does_not_answer(make_tray, qtbot):
         device.release.set()
         tray.service.shutdown()
         pool.shutdown(wait=True)
+
+
+def test_answers_arriving_after_close_are_ignored(make_tray, executor, qtbot):
+    tray = make_tray(bulb("b1", state=DeviceState(power=True)))
+    open_menu(tray)  # a read is pending on the (manual) worker
+    action(tray, strings.TURN_ALL_ON).trigger()
+
+    tray.close()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    executor.run_all()  # the device answers after the menu is gone
+    tray.service.shutdown()
+    QApplication.processEvents()  # deliver the queued answers: none may touch the menu

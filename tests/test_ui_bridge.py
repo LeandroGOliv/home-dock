@@ -4,6 +4,7 @@ import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 
 import pytest
+from PySide6.QtWidgets import QApplication
 
 from homedock.core import ControlService, Target
 from homedock.devices import Capability, DeviceState, DeviceType
@@ -67,5 +68,5 @@ def test_detach_stops_forwarding_events(qtbot, service):
 
     service.send(Target.device("bulb-1"), DeviceState(power=True)).result(timeout=5)
 
-    qtbot.wait(50)
+    QApplication.processEvents()  # events are emitted before the future completes
     assert received == []

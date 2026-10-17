@@ -60,6 +60,7 @@ class TrayController(QObject):
         self._start_with_windows = start_with_windows
         self._set_start_with_windows = set_start_with_windows
         self._devices = [d for d in service.devices if Capability.POWER in d.capabilities]
+        self._closed = False
 
         self._bridge = ServiceBridge(service, self)
         self._bridge.state_changed.connect(self._on_device_changed)
@@ -80,8 +81,12 @@ class TrayController(QObject):
         self._refresh()
 
     def close(self) -> None:
-        self.tray.hide()
+        """Hide the icon and drop the menu; answers still on their way are ignored."""
+        if self._closed:
+            return
+        self._closed = True
         self._bridge.detach()
+        self.tray.hide()
         self.menu.deleteLater()
 
     # --- menu -------------------------------------------------------------------------

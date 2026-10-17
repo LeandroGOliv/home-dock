@@ -1,11 +1,12 @@
 """App start-up: single instance, storage, control service, tray and placeholder flyout."""
 
+import contextlib
 import json
 import uuid
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QEvent, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QMenu
 
 import homedock.ui.app as app_module
@@ -18,8 +19,9 @@ from homedock.storage import AppPaths, open_app_data
 from homedock.storage.logs import LOG_FILE
 from homedock.ui import strings
 from homedock.ui.app import HomeDock
-from homedock.ui.flyout import PlaceholderFlyout
+from homedock.ui.flyout import MARGIN, PlaceholderFlyout
 from homedock.ui.single_instance import SingleInstance
+from ui_helpers import settle
 
 
 def all_files(folder: Path) -> set[str]:
@@ -37,6 +39,20 @@ def tray_menus() -> list[QMenu]:
 def choose_quit() -> None:
     [menu] = tray_menus()
     next(a for a in menu.actions() if a.text() == strings.QUIT).trigger()
+
+
+@contextlib.contextmanager
+def safety_net(qapp, seconds: float = 5):
+    """Quit a hanging event loop instead of hanging the suite; yields whether it fired."""
+    fired: list[bool] = []
+    timer = QTimer()
+    timer.setSingleShot(True)
+    timer.timeout.connect(lambda: (fired.append(True), qapp.quit()))
+    timer.start(int(seconds * 1000))
+    try:
+        yield fired
+    finally:
+        timer.stop()
 
 
 @pytest.fixture
@@ -63,9 +79,8 @@ def test_main_runs_the_tray_until_quit_is_chosen(qapp, folders):
         quit_chosen.append(True)
 
     QTimer.singleShot(0, quit_from_the_menu)
-    QTimer.singleShot(5000, qapp.quit)  # safety net: never hang the suite
-
-    assert main() == 0
+    with safety_net(qapp):
+        assert main() == 0
     assert quit_chosen == [True]
 
 
@@ -83,8 +98,9 @@ def test_main_writes_only_under_appdata_homedock(qapp, folders):
 def test_a_second_instance_exits_without_touching_anything(qapp, folders):
     appdata, _cwd, _home = folders
     menus = len(tray_menus())
-    with SingleInstance.acquire(app_module.INSTANCE_NAME):
+    with SingleInstance.acquire(app_module.INSTANCE_NAME), safety_net(qapp) as fired:
         assert main() == 0
+    assert not fired  # returned at once: no event loop was started
 
     assert all_files(appdata) == set()
     assert len(tray_menus()) == menus  # no second tray menu
@@ -143,6 +159,23 @@ def test_start_with_windows_is_saved_in_the_config_file(qtbot, data, executor):
     home.close()
 
 
+def test_start_with_windows_reverts_when_the_config_cannot_be_written(
+    qtbot, data, executor, monkeypatch
+):
+    home = make_home(data, executor)
+    item = next(a for a in home.tray.menu.actions() if a.text() == strings.START_WITH_WINDOWS)
+
+    def fail(_config):
+        raise PermissionError("read-only")
+
+    monkeypatch.setattr(data, "save", fail)
+    item.trigger()
+
+    assert not item.isChecked()
+    assert data.config.settings.start_with_windows is False
+    home.close()
+
+
 def test_showing_the_tray_reads_the_state_of_the_devices(qtbot, data, executor):
     bulb = FakeDevice(
         "b1", "Abajur", DeviceType.RGB_BULB, frozenset(Capability), state=DeviceState(power=True)
@@ -150,7 +183,7 @@ def test_showing_the_tray_reads_the_state_of_the_devices(qtbot, data, executor):
     home = make_home(data, executor, bulb)
 
     home.show()
-    executor.run_all()
+    settle(executor)
 
     assert home.tray.device_actions["b1"].isChecked()
     home.close()
@@ -190,5 +223,18 @@ def test_the_flyout_opens_inside_the_available_screen_area(qtbot):
 
     assert flyout.isVisible()
     area = flyout.screen().availableGeometry()
-    assert area.contains(flyout.frameGeometry())
+    frame = flyout.frameGeometry()
+    assert area.contains(frame)
+    assert area.right() - frame.right() == MARGIN  # bottom-right corner, above the taskbar
+    assert area.bottom() - frame.bottom() == MARGIN
     assert flyout.width() == 360
+
+
+def test_escape_hides_the_flyout(qtbot):
+    flyout = PlaceholderFlyout()
+    qtbot.addWidget(flyout)
+    flyout.open()
+
+    qtbot.keyClick(flyout, Qt.Key.Key_Escape)
+
+    assert not flyout.isVisible()

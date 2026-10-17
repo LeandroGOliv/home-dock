@@ -1,4 +1,4 @@
-"""App start-up: single instance, storage, control service, tray and placeholder flyout."""
+"""App start-up: single instance, storage, control service, tray and flyout."""
 
 import contextlib
 import json
@@ -6,20 +6,19 @@ import uuid
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QEvent, Qt, QTimer
+from PySide6.QtCore import QEvent, QTimer
 from PySide6.QtWidgets import QApplication, QMenu
 
 import homedock.ui.app as app_module
 from executors import ManualExecutor
 from homedock.__main__ import main
-from homedock.core import ControlService, Target
+from homedock.core import ControlService, GroupBook, Target
 from homedock.devices import Capability, DeviceState, DeviceType
 from homedock.devices.fake import FakeDevice
 from homedock.storage import AppPaths, open_app_data
 from homedock.storage.logs import LOG_FILE
 from homedock.ui import strings
 from homedock.ui.app import HomeDock
-from homedock.ui.flyout import MARGIN, PlaceholderFlyout
 from homedock.ui.single_instance import SingleInstance
 from ui_helpers import settle
 
@@ -200,41 +199,46 @@ def test_closing_shuts_the_control_service_down(qtbot, data, executor):
     assert bulb.applied == []
 
 
-# --- placeholder flyout -----------------------------------------------------------------------
+def test_the_flyout_remembers_the_selected_target_in_the_config_file(qtbot, data, executor):
+    bulb = FakeDevice("b1", "Abajur", DeviceType.RGB_BULB, frozenset(Capability))
+    home = make_home(data, executor, bulb)
+    home.flyout.open()
+
+    home.flyout.main.select(Target.device("b1"))
+
+    saved = json.loads(data.paths.config_file.read_text(encoding="utf-8"))
+    assert saved["settings"]["last_target"] == {"kind": "device", "key": "b1"}
+    home.close()
+
+    again = make_home(data, executor, bulb)
+    again.flyout.open()
+    assert again.flyout.main.target == Target.device("b1")
+    again.close()
 
 
-def test_the_flyout_toggles_between_shown_and_hidden(qtbot):
-    flyout = PlaceholderFlyout()
-    qtbot.addWidget(flyout)
+def test_the_flyout_shows_the_names_and_groups_of_the_config(qtbot, data, executor):
+    from homedock.core import Group
+    from homedock.storage import Config
 
-    flyout.toggle()
-    assert flyout.isVisible()
+    data.save(Config(names={"b1": "Abajur"}, groups=(Group("g1", "Sala", ("b1",)),)))
+    bulb = FakeDevice("b1", "Wizard", DeviceType.RGB_BULB, frozenset(Capability))
+    service = ControlService([bulb], GroupBook(data.config.groups), executor=executor, throttle=0)
+    home = HomeDock(data, service)
+    home.flyout.open()
 
-    flyout.toggle()
-    assert not flyout.isVisible()
-
-
-def test_the_flyout_opens_inside_the_available_screen_area(qtbot):
-    flyout = PlaceholderFlyout()
-    qtbot.addWidget(flyout)
-
-    flyout.open()
-    flyout.open()  # opening twice keeps it open
-
-    assert flyout.isVisible()
-    area = flyout.screen().availableGeometry()
-    frame = flyout.frameGeometry()
-    assert area.contains(frame)
-    assert area.right() - frame.right() == MARGIN  # bottom-right corner, above the taskbar
-    assert area.bottom() - frame.bottom() == MARGIN
-    assert flyout.width() == 360
+    rows = home.flyout.main.target_list.rows
+    assert rows[Target.group("g1")].entry.detail == "Abajur"
+    assert rows[Target.device("b1")].entry.title == "Abajur"
+    home.close()
 
 
-def test_escape_hides_the_flyout(qtbot):
-    flyout = PlaceholderFlyout()
-    qtbot.addWidget(flyout)
-    flyout.open()
+def test_left_click_on_the_tray_icon_opens_the_flyout(qtbot, data, executor):
+    from PySide6.QtWidgets import QSystemTrayIcon
 
-    qtbot.keyClick(flyout, Qt.Key.Key_Escape)
+    home = make_home(data, executor)
 
-    assert not flyout.isVisible()
+    home.tray.tray.activated.emit(QSystemTrayIcon.ActivationReason.Trigger)
+
+    assert home.flyout.isVisible()
+    home.close()
+    assert not home.flyout.isVisible()

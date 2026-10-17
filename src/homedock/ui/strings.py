@@ -34,9 +34,6 @@ MANAGE_TITLE = "Grupos e lâmpadas"
 MANAGE_SOON = "Em breve: criar grupos, renomear lâmpadas e procurar lâmpadas novas."
 BACK = "Voltar"
 
-# Flyout (placeholder until the flyout issue)
-FLYOUT_PLACEHOLDER = "O painel de controle chega em breve.\nUse o menu do ícone por enquanto."
-
 SEPARATOR = " · "
 
 

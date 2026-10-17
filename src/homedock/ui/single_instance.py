@@ -11,6 +11,7 @@ from ctypes import wintypes
 from types import TracebackType
 
 DEFAULT_NAME = "Local\\HomeDock.SingleInstance"  # "Local\": per user session
+ERROR_ACCESS_DENIED = 5
 ERROR_ALREADY_EXISTS = 183
 
 
@@ -35,6 +36,8 @@ class SingleInstance:
         kernel32 = _kernel32()
         handle = kernel32.CreateMutexW(None, False, name)
         error = ctypes.get_last_error()
+        if not handle and error == ERROR_ACCESS_DENIED:
+            return None  # held by an instance running with other rights (e.g. elevated)
         if not handle:
             raise ctypes.WinError(error)
         if error == ERROR_ALREADY_EXISTS:

@@ -1,12 +1,14 @@
 """Single-instance guard: a second HomeDock must not open another tray icon."""
 
+import ctypes
 import subprocess
 import sys
 import uuid
 
 import pytest
 
-from homedock.ui.single_instance import SingleInstance
+from homedock.ui import single_instance
+from homedock.ui.single_instance import ERROR_ACCESS_DENIED, SingleInstance
 
 
 @pytest.fixture
@@ -63,3 +65,27 @@ def test_release_is_idempotent(name):
 def test_different_names_do_not_conflict(name):
     with SingleInstance.acquire(name), SingleInstance.acquire(name + ".other") as other:
         assert other is not None
+
+
+def test_an_instance_running_with_other_rights_counts_as_running(monkeypatch, name):
+    # An elevated HomeDock's mutex cannot be opened without elevation: access denied.
+    class DeniedKernel32:
+        def CreateMutexW(self, *_args):  # noqa: N802 (Win32 API name)
+            ctypes.set_last_error(ERROR_ACCESS_DENIED)
+            return None
+
+    monkeypatch.setattr(single_instance, "_kernel32", DeniedKernel32)
+
+    assert SingleInstance.acquire(name) is None
+
+
+def test_any_other_failure_to_create_the_mutex_raises(monkeypatch, name):
+    class FailingKernel32:
+        def CreateMutexW(self, *_args):  # noqa: N802 (Win32 API name)
+            ctypes.set_last_error(87)  # ERROR_INVALID_PARAMETER
+            return None
+
+    monkeypatch.setattr(single_instance, "_kernel32", FailingKernel32)
+
+    with pytest.raises(OSError):
+        SingleInstance.acquire(name)

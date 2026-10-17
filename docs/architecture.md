@@ -29,8 +29,9 @@ same PR.
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Dependencies point downwards only. `ui` talks to `core`; `core` uses `devices` and
-`storage`; nothing below `ui` imports Qt widgets.
+Dependencies point downwards only (devices → core → storage → ui). `ui` talks to `core`;
+`core` uses `devices`; `storage` persists the core's groups and scenes; nothing below `ui`
+imports Qt.
 
 ## Device layer
 
@@ -91,18 +92,48 @@ transport), `rgb_bulb.py` (bulb driver, the only place with bulb DPS), `registry
 
 ## Core
 
-- **ControlService** — owns devices, runs all I/O on a worker pool (never on the UI
-  thread), keeps a state cache, emits state-changed / online-changed events.
-  - Group commands fan out to all members **in parallel**.
-  - Each device receives only the capabilities it supports (mixed groups).
-  - Rapid updates (slider/ring drags) are coalesced: latest value wins, throttled per
-    device.
-- **Targets** — what the flyout controls: a single device, a user group, or an
+Modules: `control.py` (`ControlService`), `targets.py`, `groups.py`, `scenes.py`,
+`events.py` (Qt-free observer), `naming.py`. The core only knows the generic `Device`
+protocol; tests guard that it never mentions `RgbBulb`, imports only the public
+`homedock.devices` API and never imports `storage`, `ui` or Qt.
+
+- **ControlService** — owns a fixed list of devices, runs all I/O on a worker pool (never
+  on the UI thread; at least one worker per device) and keeps a state/online cache.
+  - API: `send(target, changes)`, `refresh(target)` and `apply_scene(scene)` return a
+    `Future[CommandResult]` (`succeeded` / `failed` / `skipped` / `unknown` device ids,
+    in target order); `capture(target)` returns a future snapshot. None of them block. `state(id)`,
+    `is_online(id)` (`None` until the first I/O) and `capabilities(target)` (union of the
+    members') read the cache.
+  - Events `state_changed(id, state)` and `online_changed(id, online)` fire on worker
+    threads, only when the cached value changes; the UI must marshal them to its thread.
+    A failing listener is logged and ignored.
+  - Group commands fan out to all members **in parallel**; each device receives only the
+    capabilities it supports (mixed groups) — a device supporting none is `skipped`.
+  - Each device has a **lane**: a FIFO of writes and reads drained by one worker task at
+    a time, so I/O to a device is serialised and keeps its order. A write queued behind
+    a pending write of the **same capabilities** replaces it — latest value wins, so
+    slider/ring drags collapse into few writes; consecutive reads merge. (A wider change
+    is kept apart: it may imply another bulb mode than the pending one.)
+    Writes to a device are spaced by `THROTTLE_INTERVAL` (0.1 s after the previous write
+    ends); values arriving during that wait coalesce too. Executor, clock and sleep are
+    injectable for deterministic tests.
+  - `DeviceError` → the device is `failed` and marked offline (a later success marks it
+    online again), and the jobs already queued for it fail at once instead of each
+    waiting for a timeout; any other exception is logged and fails only that job. A
+    partial state returned by a device is merged into the cached one. Logs mask device
+    IDs.
+  - `shutdown()` fails every queued job, makes later calls fail immediately
+    (`ServiceClosedError`) and stops the pool it created (an injected executor is left
+    running); no future is ever left pending.
+- **Targets** — `Target.device(id)`, `Target.group(id)` or `Target.all_of(type)`: the
   **automatic group per device type** ("Todas as lâmpadas" = all `RGB_BULB` devices).
-  The target exposes the intersection/union of capabilities needed by the panel.
-- **Groups** — user-defined (e.g. Sala, Quarto), stored locally; a device may belong to
-  many groups; mixed types allowed. Tuya groups are not used.
-- **Scenes** — named snapshots, generic per capability:
+  `resolve()` returns the known members (a stale target resolves to nothing);
+  `available_targets()` lists automatic groups (types present), user groups, devices.
+- **Groups** — `GroupBook` of `Group(id, name, members)`: create, rename, set members,
+  delete; a device may belong to many groups; mixed types allowed. Tuya groups are not
+  used. Names are trimmed and must not be blank.
+- **Scenes** — `SceneBook` of `Scene(id, name, devices: {device id: DeviceState})`:
+  create, rename, overwrite, delete. Stored (by `storage`) as:
 
   ```json
   {
@@ -115,9 +146,12 @@ transport), `rgb_bulb.py` (bulb driver, the only place with bulb DPS), `registry
   }
   ```
 
-  "Salvar atual" captures only the devices of the **current target**. Applying a scene
-  skips offline devices (and reports them) and sends each device only supported
-  capabilities.
+  "Salvar atual" = `SceneBook.create(name, service.capture(target).result())` (awaited off
+  the UI thread): `capture` reads the devices of the **current target** — queued behind
+  pending writes, so the end of a drag is included — and keeps those that answered, each
+  restricted to its capabilities. `apply_scene` sends every entry in parallel, each device only its
+  supported capabilities; offline devices fail alone and are reported (`failed`), devices
+  no longer known are reported as `unknown` — the rest of the scene is applied.
 
 ## Storage
 

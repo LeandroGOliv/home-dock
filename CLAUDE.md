@@ -107,6 +107,8 @@ model — never assume.
   kept). The driver must never send DPS 22 in colour mode.
 - Power on/off sends **only DPS 20**; DPS 21–24 are preserved across off/on (verified).
 - Every write is read back exactly as sent (no rounding).
+- Mode and values can go in one write (`{21: "colour", 24: …}`, `{21: "white", 22: …,
+  23: …}`) — verified through the `RgbBulb` driver on a real bulb (2026-10-16, issue #4).
 - With a **persistent socket**, `status()` may return the bulb's queued *partial* push
   (only the DPS that just changed). Either merge pushes into a state cache or read with
   a fresh connection; never treat a partial dict as the full state.

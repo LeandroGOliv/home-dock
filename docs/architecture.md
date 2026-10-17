@@ -203,8 +203,8 @@ when `APPDATA` is unset), never in the repo or the working directory:
   read from the files.
 - **Start-up** — `open_app_data()` sets up the logs, imports the devices (registering
   their secrets in the log filter), loads the config and writes the default `config.json`
-  when there is none. `AppData.save(config)` persists changes. `homedock` (`__main__`)
-  currently only runs this start-up.
+  when there is none. `AppData.save(config)` persists changes. The UI start-up
+  (`ui/app.py`) calls it once.
 
 "Recarregar dispositivos" re-imports `devices.json`, runs a local `tinytuya` scan to fill or
 refresh IPs, and warns when a Tuya device on the LAN is missing from `devices.json`
@@ -212,9 +212,34 @@ refresh IPs, and warns when a Tuya device on the LAN is missing from `devices.js
 
 ## UI
 
-- **Tray icon** — left click toggles the flyout. Right-click menu: Abrir painel · Ligar
-  todos · Desligar todos · per-device toggle (with current state) · Cenas ▸ · Iniciar com o
-  Windows ☑ · Sair.
+Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py`,
+`icons.py`, `flyout.py` (placeholder), `strings.py`. The UI may import `core`, `storage`,
+`masking` and the public `homedock.devices` API only (guarded by a test).
+
+- **Start-up** — `homedock` (`__main__` → `ui.app.run()`): takes the single-instance lock
+  (a named Windows mutex, `Local\HomeDock.SingleInstance`; a second launch exits at once,
+  before touching any file), runs the storage start-up, builds the `ControlService` over
+  the imported devices and shows the tray. The app does not quit when a window closes;
+  "Sair" quits, and the service is shut down on the way out.
+- **Thread bridge** — `ServiceBridge` (a `QObject` on the UI thread) re-emits the service
+  events (`state_changed`, `online_changed`) as Qt signals and runs future callbacks
+  (`when_done`) on the UI thread, always queued. Widgets are never touched from workers.
+- **Tray icon** — painted bulb icon (no image files), tooltip "HomeDock". Left click
+  toggles the flyout. Right-click menu: Abrir painel · Ligar todos · Desligar todos ·
+  per-device toggle · Cenas ▸ · Iniciar com o Windows ☑ · Sair.
+  - Generic: every device with the `power` capability gets a checkable item (checked =
+    on), labelled with the user's display name (`config.names`, else the wizard name) and
+    "· offline" when its last I/O failed. "Ligar/Desligar todos" send `power` to the
+    automatic group of every device type present.
+  - Opening the menu re-reads names, scenes and the setting from the config and queues a
+    `refresh` of every device; the items update live as the answers arrive. After any
+    command the items show the cached state again, so a failed toggle reverts.
+  - "Iniciar com o Windows" only saves `settings.start_with_windows` for now (the Windows
+    `Run` entry comes with the packaging issue); a failed save reverts the check mark.
+  - `&` in names is escaped so it is not taken as a keyboard shortcut.
+- **Placeholder flyout** — until the flyout issue: a frameless 360 px window in the
+  bottom-right corner of the available screen area, toggled by the tray icon, hidden with
+  Esc. It exposes `toggle()` / `open()`, the interface the tray expects from the flyout.
 - **Flyout** — ~360 px wide, anchored near the tray, Windows 11 style, closes when it loses
   focus. One window with a **page stack**:
   - Main: target selector (groups + devices with online status) + power button for the

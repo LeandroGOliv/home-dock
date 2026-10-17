@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 
 from homedock.core.events import Event
 from homedock.core.groups import GroupBook
+from homedock.core.scenes import Scene
 from homedock.core.targets import Target, resolve
 from homedock.devices import Capability, Device, DeviceError, DeviceState
 from homedock.masking import mask
@@ -125,20 +126,36 @@ class ControlService:
 
     def send(self, target: Target, changes: DeviceState) -> Future[CommandResult]:
         """Apply ``changes`` to every member in parallel, each getting only what it supports."""
-        pending: list[tuple[str, Future[DeviceState]]] = []
-        skipped: list[str] = []
-        for device in self.members(target):
-            supported = changes.restricted_to(device.capabilities)
-            if supported.capabilities:
-                pending.append((device.id, self._enqueue(device.id, supported)))
-            else:
-                skipped.append(device.id)
-        return _gather(pending, skipped=tuple(skipped))
+        return self._dispatch((device, changes) for device in self.members(target))
 
     def refresh(self, target: Target) -> Future[CommandResult]:
         """Read the real state of every member into the cache, in parallel."""
         pending = [(d.id, self._enqueue(d.id, None)) for d in self.members(target)]
         return _gather(pending)
+
+    def snapshot(self, target: Target) -> dict[str, DeviceState]:
+        """Cached state of the members worth saving in a scene ("Salvar atual").
+
+        Devices that are offline or were never read are left out; each state keeps only
+        the device's capabilities.
+        """
+        snapshot: dict[str, DeviceState] = {}
+        with self._lock:
+            for device in self.members(target):
+                state = self._states.get(device.id)
+                if state is None or self._online.get(device.id) is False:
+                    continue
+                kept = state.restricted_to(device.capabilities)
+                if kept.capabilities:
+                    snapshot[device.id] = kept
+        return snapshot
+
+    def apply_scene(self, scene: Scene) -> Future[CommandResult]:
+        """Apply every entry in parallel; offline and unknown devices are only reported."""
+        by_id = {device.id: device for device in self._devices}
+        unknown = tuple(i for i in scene.devices if i not in by_id)
+        entries = ((by_id[i], s) for i, s in scene.devices.items() if i in by_id)
+        return self._dispatch(entries, unknown)
 
     def shutdown(self) -> None:
         """Stop the worker pool the service created (an injected executor is left alone)."""
@@ -146,6 +163,19 @@ class ControlService:
             self._executor.shutdown(wait=False, cancel_futures=True)
 
     # --- lanes ------------------------------------------------------------------------
+
+    def _dispatch(
+        self, entries: Iterable[tuple[Device, DeviceState]], unknown: tuple[str, ...] = ()
+    ) -> Future[CommandResult]:
+        pending: list[tuple[str, Future[DeviceState]]] = []
+        skipped: list[str] = []
+        for device, changes in entries:
+            supported = changes.restricted_to(device.capabilities)
+            if supported.capabilities:
+                pending.append((device.id, self._enqueue(device.id, supported)))
+            else:
+                skipped.append(device.id)
+        return _gather(pending, tuple(skipped), unknown)
 
     def _enqueue(self, device_id: str, changes: DeviceState | None) -> Future[DeviceState]:
         future: Future[DeviceState] = Future()
@@ -228,7 +258,9 @@ def _settle(
 
 
 def _gather(
-    pending: list[tuple[str, Future[DeviceState]]], skipped: tuple[str, ...] = ()
+    pending: list[tuple[str, Future[DeviceState]]],
+    skipped: tuple[str, ...] = (),
+    unknown: tuple[str, ...] = (),
 ) -> Future[CommandResult]:
     """A future completed with the outcome of every device future."""
     result: Future[CommandResult] = Future()
@@ -239,7 +271,7 @@ def _gather(
         succeeded = tuple(i for i, f in pending if not f.cancelled() and f.exception() is None)
         failed = tuple(i for i, _ in pending if i not in succeeded)
         with contextlib.suppress(InvalidStateError):
-            result.set_result(CommandResult(succeeded, failed, skipped))
+            result.set_result(CommandResult(succeeded, failed, skipped, unknown))
 
     def on_done(_future: Future[DeviceState]) -> None:
         nonlocal remaining

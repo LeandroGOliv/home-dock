@@ -10,8 +10,9 @@ import pytest
 
 from homedock.core.control import THROTTLE_INTERVAL, CommandResult, ControlService
 from homedock.core.groups import GroupBook
+from homedock.core.scenes import Scene
 from homedock.core.targets import Target
-from homedock.devices import Capability, Color, DeviceState, DeviceType
+from homedock.devices import Capability, Color, DeviceState, DeviceType, WorkMode
 from homedock.devices.fake import FakeDevice
 
 BULB = frozenset(Capability)
@@ -414,3 +415,93 @@ def test_io_to_one_device_is_never_concurrent():
         release.set()
         service.shutdown()
     assert device.applied == [DeviceState(brightness=10), DeviceState(power=True)]
+
+
+# --- scenes -------------------------------------------------------------------------------
+
+
+def test_snapshot_captures_only_the_target_with_supported_known_states(make_service, executor):
+    lamp = bulb("bulb-1", state=DeviceState(power=True, brightness=60))
+    other_lamp = bulb("bulb-2", state=DeviceState(power=False))
+    never_read = bulb("bulb-3")
+    gone_offline = bulb("bulb-4", state=DeviceState(power=True))
+    ac = air_conditioner()
+    groups = GroupBook()
+    sala = groups.create("Sala", ["bulb-1", "bulb-3", "bulb-4", "ac-1"])
+    service = make_service(lamp, other_lamp, never_read, gone_offline, ac, groups=groups)
+    done(service.refresh(Target.device("bulb-1")), executor)
+    done(service.refresh(Target.device("bulb-2")), executor)
+    done(service.refresh(Target.device("bulb-4")), executor)
+    done(service.refresh(Target.device("ac-1")), executor)
+    gone_offline.online = False
+    done(service.refresh(Target.device("bulb-4")), executor)
+
+    # bulb-2 is outside the group, bulb-3 never answered, bulb-4 is offline, ac-1 reported
+    # nothing: only bulb-1 has something to restore.
+    assert service.snapshot(Target.group(sala.id)) == {
+        "bulb-1": DeviceState(power=True, brightness=60),
+    }
+
+
+def test_snapshot_keeps_only_the_capabilities_of_each_device(make_service, executor):
+    class LeakyAc(FakeDevice):
+        def read_state(self) -> DeviceState:
+            return DeviceState(power=True, brightness=50)
+
+    ac = LeakyAc("ac-1", "ac-1", OtherType.AC, frozenset({Capability.POWER}))
+    service = make_service(ac)
+    done(service.refresh(Target.device("ac-1")), executor)
+    assert service.snapshot(Target.device("ac-1")) == {"ac-1": DeviceState(power=True)}
+
+
+def test_apply_scene_sends_each_device_its_own_entry(make_service, executor):
+    a, b, ac = bulb("bulb-a"), bulb("bulb-b"), air_conditioner()
+    service = make_service(a, b, ac)
+    scene = Scene(
+        "scene-1",
+        "Leitura",
+        {
+            "bulb-a": DeviceState(power=True, work_mode=WorkMode.WHITE, brightness=80),
+            "bulb-b": DeviceState(power=False),
+            "ac-1": DeviceState(power=True, brightness=10),
+        },
+    )
+    result = done(service.apply_scene(scene), executor)
+    assert result == CommandResult(succeeded=("bulb-a", "bulb-b", "ac-1"))
+    assert a.applied == [DeviceState(power=True, work_mode=WorkMode.WHITE, brightness=80)]
+    assert b.applied == [DeviceState(power=False)]
+    assert ac.applied == [DeviceState(power=True)]
+
+
+def test_apply_scene_skips_offline_and_unknown_devices_and_reports_them(make_service, executor):
+    online, offline, ac = bulb("bulb-a"), bulb("bulb-b", online=False), air_conditioner()
+    service = make_service(online, offline, ac)
+    scene = Scene(
+        "scene-1",
+        "Festa",
+        {
+            "bulb-a": DeviceState(power=True, color_hsv=Color(300, 100)),
+            "bulb-b": DeviceState(power=True),
+            "removed": DeviceState(power=True),
+            "ac-1": DeviceState(brightness=10),
+        },
+    )
+    result = done(service.apply_scene(scene), executor)
+    assert result == CommandResult(
+        succeeded=("bulb-a",), failed=("bulb-b",), skipped=("ac-1",), unknown=("removed",)
+    )
+    assert online.state == DeviceState(power=True, color_hsv=Color(300, 100))
+
+
+def test_a_captured_scene_restores_the_devices(make_service, executor):
+    a = bulb("bulb-a", state=DeviceState(power=True, work_mode=WorkMode.WHITE, brightness=30))
+    b = bulb("bulb-b", state=DeviceState(power=True, color_hsv=Color(200, 50), brightness=90))
+    service = make_service(a, b)
+    done(service.refresh(ALL_BULBS), executor)
+    scene = Scene("scene-1", "Noite", service.snapshot(ALL_BULBS))
+
+    done(service.send(ALL_BULBS, DeviceState(power=False, brightness=5)), executor)
+    assert done(service.apply_scene(scene), executor).ok
+
+    assert service.snapshot(ALL_BULBS) == scene.devices
+    assert a.state == DeviceState(power=True, work_mode=WorkMode.WHITE, brightness=30)

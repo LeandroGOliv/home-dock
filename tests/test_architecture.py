@@ -68,3 +68,27 @@ def test_core_is_device_agnostic_and_never_imports_higher_layers(path):
 )
 def test_the_core_guard_catches_violations(line):
     assert CORE_FORBIDDEN.search(line)
+
+
+CORE_MAY_IMPORT = re.compile(r"homedock\.(core(\.\w+)?|devices|masking)")
+
+
+@pytest.mark.parametrize("path", CORE, ids=lambda p: p.name)
+def test_core_imports_only_the_generic_device_api(path):
+    import homedock.devices
+
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules = [(alias.name, ()) for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            modules = [(node.module, tuple(alias.name for alias in node.names))]
+        else:
+            continue
+        for module, names in modules:
+            if not module.startswith("homedock"):
+                continue
+            assert CORE_MAY_IMPORT.fullmatch(module), f"{path.name} imports {module}"
+            if module == "homedock.devices":
+                extra = set(names) - set(homedock.devices.__all__)
+                assert not extra, f"{path.name} imports device internals: {extra}"

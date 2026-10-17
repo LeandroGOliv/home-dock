@@ -2,21 +2,10 @@
 
 from __future__ import annotations
 
-import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 
-
-def clean_name(name: str) -> str:
-    """The trimmed name; raises ``ValueError`` when it is blank."""
-    cleaned = name.strip()
-    if not cleaned:
-        raise ValueError("name must not be blank")
-    return cleaned
-
-
-def new_uuid() -> str:
-    return uuid.uuid4().hex
+from homedock.core.naming import clean_name, new_uuid
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,9 +32,8 @@ class GroupBook:
         return [group for group in self._groups.values() if device_id in group.members]
 
     def create(self, name: str, members: Iterable[str] = ()) -> Group:
-        group = Group(self._new_id(), clean_name(name), _unique(members))
-        self._groups[group.id] = group
-        return group
+        name = clean_name(name)
+        return self._store(Group(self._new_id(), name, _unique(members)))
 
     def rename(self, group_id: str, name: str) -> Group:
         return self._store(replace(self.get(group_id), name=clean_name(name)))

@@ -28,6 +28,7 @@ def test_names_are_trimmed_and_must_not_be_blank():
     assert book.create("  Sala  ").name == "Sala"
     with pytest.raises(ValueError):
         book.create("   ")
+    assert book.create("Quarto").id == "group-2"  # a rejected name does not use up an id
 
 
 def test_duplicate_members_are_dropped():

@@ -153,14 +153,30 @@ def test_before_any_answer_the_panel_shows_defaults_then_the_real_state(make_pan
     assert panel.modes.current() is WorkMode.COLOR
 
 
-def test_a_group_shows_the_state_of_its_first_online_member(make_panel):
-    devices = (bulb("b1", WHITE, online=False), bulb("b2", COLOUR), bulb("b3", WHITE))
-    panel = make_panel(
-        *devices, target=Target.group("g1"), groups=[Group("g1", "Sala", ("b1", "b2", "b3"))]
-    )
+def test_a_group_shows_the_state_of_its_first_online_member(make_panel, executor):
+    devices = (bulb("b1", WHITE), bulb("b2", COLOUR), bulb("b3", WHITE))
+    sala = [Group("g1", "Sala", ("b1", "b2", "b3"))]
+    panel = make_panel(*devices, target=Target.group("g1"), groups=sala)
+    assert panel.modes.current() is WorkMode.WHITE  # Lâmpada 1 is shown
+
+    devices[0].online = False  # its last known state stays in the cache
+    panel.service.refresh(Target.group("g1"))
+    settle(executor)
 
     assert panel.modes.current() is WorkMode.COLOR
     assert panel.brightness.value() == 70
+
+
+def test_the_panel_moves_on_when_the_shown_member_goes_offline(make_panel, executor):
+    devices = (bulb("b1", WHITE), bulb("b2", COLOUR))
+    sala = [Group("g1", "Sala", ("b1", "b2"))]
+    panel = make_panel(*devices, target=Target.group("g1"), groups=sala)
+
+    devices[0].online = False
+    panel.service.refresh(Target.device("b1"))  # no state change: only "offline" arrives
+    settle(executor)
+
+    assert panel.modes.current() is WorkMode.COLOR
 
 
 def test_shown_state_falls_back_to_the_last_known_state_when_nobody_answers(executor):
@@ -285,14 +301,31 @@ def test_a_group_command_reaches_every_member(make_panel, executor, qtbot):
     assert [d.applied for d in devices] == [[DeviceState(brightness=55)]] * 2 + [[]]
 
 
-def test_controls_without_the_capability_are_disabled(make_panel):
-    no_temperature = BULB - {Capability.COLOR_TEMPERATURE}
-    device = FakeDevice("b1", "b1", DeviceType.RGB_BULB, no_temperature, state=WHITE)
+@pytest.mark.parametrize(
+    ("missing", "disabled"),
+    [
+        (Capability.COLOR_TEMPERATURE, {"arc"}),
+        (Capability.COLOR_HSV, {"ring", "saturation"}),
+        (Capability.WORK_MODE, {"modes"}),
+        (Capability.BRIGHTNESS, {"brightness"}),
+    ],
+)
+def test_controls_without_their_capability_are_disabled(make_panel, missing, disabled):
+    device = FakeDevice("b1", "b1", DeviceType.RGB_BULB, BULB - {missing}, state=WHITE)
     panel = make_panel(device)
 
-    assert not panel.arc.isEnabled()
-    assert panel.brightness.slider.isEnabled()
-    assert panel.ring.isEnabled()
+    controls = ("modes", "arc", "ring", "saturation", "brightness")
+    assert {c for c in controls if not getattr(panel, c).isEnabled()} == disabled
+
+
+def test_a_disabled_control_sends_nothing(make_panel, executor, qtbot):
+    device = FakeDevice("b1", "b1", DeviceType.RGB_BULB, BULB - {Capability.BRIGHTNESS})
+    panel = make_panel(device)
+
+    click_slider(qtbot, panel.brightness.slider, 30)
+    settle(executor)
+
+    assert device.applied == []
 
 
 # --- through the real driver ------------------------------------------------------------------
@@ -317,6 +350,32 @@ def test_the_same_brightness_slider_drives_each_mode_through_the_driver(
     assert link.writes == [expected]
 
 
+def test_each_control_writes_only_the_dps_of_its_mode_through_the_driver(
+    make_panel, executor, qtbot
+):
+    # Writing the white brightness or temperature in colour mode would switch the bulb to
+    # white, and the colour in white mode to colour.
+    device, link = make_bulb(WHITE_DPS)  # blue stored at V 500
+    panel = make_panel(device)
+
+    qtbot.mouseClick(panel.arc, Qt.MouseButton.LeftButton, pos=dial_point(panel.arc, 90))
+    settle(executor)
+    assert link.writes.pop() == {"23": panel.arc.value() * 10}
+
+    choose_color(qtbot, panel)
+    settle(executor)
+    assert link.writes.pop() == {"21": "colour"}
+
+    qtbot.mouseClick(panel.ring, Qt.MouseButton.LeftButton, pos=dial_point(panel.ring, 90))
+    settle(executor)
+    hue = panel.ring.value()
+    assert link.writes.pop() == {"24": f"{hue:04x}03e801f4"}  # the hue; S and V kept
+
+    click_slider(qtbot, panel.saturation.slider, 25)
+    settle(executor)
+    assert link.writes == [{"24": f"{hue:04x}00fa01f4"}]  # the saturation; V kept
+
+
 # --- drags ------------------------------------------------------------------------------------
 
 
@@ -334,6 +393,23 @@ def test_a_continuous_drag_does_not_flood_the_bulb(make_panel, executor, qtbot):
     assert device.applied == [DeviceState(color_hsv=Color(ring.value(), 60))]
 
 
+def test_a_continuous_drag_sends_each_group_member_only_the_latest_value(
+    make_panel, executor, qtbot
+):
+    devices = (bulb("b1", COLOUR), bulb("b2", COLOUR), bulb("b3", COLOUR))
+    sala = [Group("g1", "Sala", ("b1", "b2", "b3"))]
+    panel = make_panel(*devices, target=Target.group("g1"), groups=sala)
+    slider = panel.saturation.slider
+
+    qtbot.mousePress(slider, Qt.MouseButton.LeftButton, pos=slider_point(slider, 90))
+    for value in range(89, 10, -1):
+        qtbot.mouseMove(slider, slider_point(slider, value))
+    qtbot.mouseRelease(slider, Qt.MouseButton.LeftButton, pos=slider_point(slider, 10))
+    settle(executor)
+
+    assert [d.applied for d in devices] == [[DeviceState(color_hsv=Color(200, 10))]] * 3
+
+
 def test_a_drag_while_a_write_runs_sends_only_the_latest_value_next(make_panel, executor, qtbot):
     device = bulb("b1", WHITE)
     panel = make_panel(device)
@@ -347,6 +423,32 @@ def test_a_drag_while_a_write_runs_sends_only_the_latest_value_next(make_panel, 
     settle(executor)
 
     assert device.applied == [DeviceState(brightness=20), DeviceState(brightness=60)]
+
+
+@pytest.mark.parametrize(
+    ("dial", "state", "sent"),
+    [
+        ("ring", COLOUR, lambda value: DeviceState(color_hsv=Color(value, 60))),
+        ("arc", WHITE, lambda value: DeviceState(color_temperature=value)),
+    ],
+)
+def test_a_dial_drag_is_sent_live_not_only_on_release(
+    make_panel, executor, qtbot, dial, state, sent
+):
+    device = bulb("b1", state)
+    panel = make_panel(device)
+    widget = getattr(panel, dial)
+
+    qtbot.mousePress(
+        widget, Qt.MouseButton.LeftButton, pos=dial_point(widget, 240)
+    )  # off the marker
+    first = widget.value()
+    executor.run_all()  # the press is written while the button is still held
+    qtbot.mouseMove(widget, dial_point(widget, 60))
+    qtbot.mouseRelease(widget, Qt.MouseButton.LeftButton, pos=dial_point(widget, 60))
+    settle(executor)
+
+    assert device.applied == [sent(first), sent(widget.value())]
 
 
 def test_late_answers_do_not_move_the_controls_back(make_panel, executor, qtbot):

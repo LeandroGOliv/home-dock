@@ -147,6 +147,26 @@ def test_the_keyboard_stops_at_the_limits(slider, qtbot):
     assert signals.moved == []
 
 
+def test_keys_are_ignored_while_dragging(slider, qtbot):
+    signals = Recorder(slider)
+    qtbot.mousePress(slider, Qt.MouseButton.LeftButton, pos=slider_point(slider, 20))
+
+    qtbot.keyClick(slider, Qt.Key.Key_End)
+
+    assert slider.value() == 20
+    assert signals.moved == [20]
+
+
+def test_a_second_press_during_a_drag_is_ignored(slider, qtbot):
+    signals = Recorder(slider)
+    qtbot.mousePress(slider, Qt.MouseButton.LeftButton, pos=slider_point(slider, 20))
+
+    qtbot.mousePress(slider, Qt.MouseButton.LeftButton, pos=slider_point(slider, 80))
+
+    assert slider.value() == 20
+    assert signals.moved == [20]
+
+
 def test_other_buttons_are_ignored(slider, qtbot):
     signals = Recorder(slider)
 

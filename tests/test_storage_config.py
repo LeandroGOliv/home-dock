@@ -29,14 +29,14 @@ CONFIG = Config(
             },
         ),
     ),
-    settings=Settings(start_with_windows=True, last_target=Target.group("g-1")),
+    settings=Settings(last_target=Target.group("g-1")),
 )
 
 
 def test_the_default_config_is_empty():
     config = Config()
     assert (config.names, config.groups, config.scenes) == ({}, (), ())
-    assert config.settings == Settings(start_with_windows=False, last_target=None)
+    assert config.settings == Settings(last_target=None)
 
 
 def test_the_file_format_is_versioned_json():
@@ -62,10 +62,7 @@ def test_the_file_format_is_versioned_json():
                 },
             }
         ],
-        "settings": {
-            "start_with_windows": True,
-            "last_target": {"kind": "group", "key": "g-1"},
-        },
+        "settings": {"last_target": {"kind": "group", "key": "g-1"}},
     }
     assert CURRENT_SCHEMA == 1
 
@@ -108,7 +105,6 @@ def test_unknown_keys_are_ignored():
         {"schema": 1, "groups": [{"id": 7, "name": "Sala", "members": []}]},
         {"schema": 1, "scenes": [{"id": "s-1", "name": "Leitura", "devices": []}]},
         {"schema": 1, "scenes": [{"id": "s-1", "name": "L", "devices": {"d": {"power": 1}}}]},
-        {"schema": 1, "settings": {"start_with_windows": "yes"}},
         {"schema": 1, "settings": {"last_target": {"kind": "room", "key": "x"}}},
         {"schema": 1, "settings": {"last_target": "g-1"}},
     ],
@@ -116,6 +112,14 @@ def test_unknown_keys_are_ignored():
 def test_invalid_data_raises_config_error(data):
     with pytest.raises(ConfigError):
         config_from_dict(data)
+
+
+@pytest.mark.parametrize("value", [True, "yes"])
+def test_the_start_with_windows_setting_of_older_versions_is_ignored(value):
+    # The registry holds that choice now (``storage.autostart``).
+    config = config_from_dict({"schema": 1, "settings": {"start_with_windows": value}})
+    assert config.settings == Settings()
+    assert "start_with_windows" not in config_to_dict(config)["settings"]
 
 
 def test_migrate_applies_each_step_up_to_the_current_schema():

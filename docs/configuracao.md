@@ -152,9 +152,13 @@ do celular (nas configurações do dispositivo, opções como *memória ao desli
 | Arquivo | Para que serve |
 |---|---|
 | `devices.json` | Cópia do arquivo do wizard. O HomeDock só lê — exceto os IPs (e uma versão de protocolo vazia), que **Procurar lâmpadas novas** atualiza com o que achou na rede. Renomear uma lâmpada não muda este arquivo. |
-| `config.json` | Nomes que você deu às lâmpadas, grupos, cenas e preferências (iniciar com o Windows, último alvo selecionado). Criado na primeira execução. |
+| `config.json` | Nomes que você deu às lâmpadas, grupos, cenas e o último alvo selecionado. Criado na primeira execução. |
 | `logs\homedock.log` | Registro de funcionamento, útil para diagnosticar problemas. Gira automaticamente (até 4 arquivos de 1 MB). |
 
+- **Iniciar com o Windows** não fica no `config.json`: é a entrada `HomeDock` em
+  `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` (a lista de
+  programas que o Windows abre quando você entra), a única coisa que o HomeDock grava
+  fora desta pasta. Desmarcar a opção remove a entrada.
 - O `config.json` é sempre gravado de forma segura (arquivo temporário + troca), então
   uma queda de energia durante a gravação não deixa o arquivo pela metade.
 - Se o `config.json` estiver corrompido ou ilegível, o HomeDock **não fecha**: ele renomeia
@@ -167,9 +171,10 @@ do celular (nas configurações do dispositivo, opções como *memória ao desli
 
 | Sintoma | O que verificar |
 |---|---|
-| Wizard não encontra dispositivos / IPs vazios | Rede marcada como Privada? Lâmpadas energizadas? PC na mesma rede? Firewall liberado para o Python em redes privadas? |
+| Wizard não encontra dispositivos / IPs vazios | Rede marcada como Privada? Lâmpadas energizadas? PC na mesma rede? Firewall liberado para o Python (ou para o `HomeDock.exe`) em redes privadas? |
 | Lâmpada aparece *offline* no HomeDock | Ela está energizada? Ao religá-la, ela volta a aparecer online sozinha em até ~30 s. Se o IP mudou, o HomeDock a procura na rede sozinho em menos de um minuto (ou use **Procurar lâmpadas novas**); reserve IP fixo para evitar. |
 | "Não foi possível procurar na rede" | Outro programa (ex.: um `tinytuya scan` aberto) está usando as portas UDP 6666/6667/7000, ou o firewall bloqueou o HomeDock. Feche o outro programa e tente de novo. |
 | Erro de chave / dispositivo não responde após reset | A local key mudou — rode o wizard de novo e reimporte. |
 | Wizard reclama de credenciais | Confira Access ID/Secret e o Data Center (Western America → região `us`). |
+| O HomeDock não abre ao entrar no Windows | **Iniciar com o Windows** está marcado no menu da bandeja? Se a marca sumiu, o HomeDock foi desativado em **Gerenciador de Tarefas → Aplicativos de inicialização** ou o `HomeDock.exe` mudou de pasta: marque a opção de novo. |
 | Grupos/cenas sumiram e apareceu um `config.corrupt-….json` | O `config.json` estava corrompido. Seus dados continuam no arquivo `config.corrupt-…` (não o publique: ele contém IDs dos dispositivos). |

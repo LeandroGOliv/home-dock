@@ -35,7 +35,8 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    start_with_windows: bool = False
+    """Starting with Windows is not here: the registry holds it (see :mod:`autostart`)."""
+
     last_target: Target | None = None
 
 
@@ -135,7 +136,6 @@ def config_to_dict(config: Config) -> dict[str, Any]:
             for scene in config.scenes
         ],
         "settings": {
-            "start_with_windows": config.settings.start_with_windows,
             "last_target": None if target is None else {"kind": target.kind, "key": target.key},
         },
     }
@@ -176,14 +176,11 @@ def _scene(data: object) -> Scene:
 
 
 def _settings(data: dict[str, Any]) -> Settings:
-    start = data.get("start_with_windows", False)
-    if not isinstance(start, bool):
-        raise ConfigError("start_with_windows must be a boolean")
     target = data.get("last_target")
     if target is not None:
         target = _mapping(target, "last_target")
         target = Target(TargetKind(target["kind"]), _text(target["key"]))
-    return Settings(start_with_windows=start, last_target=target)
+    return Settings(last_target=target)
 
 
 def _mapping(value: object, what: str) -> dict[str, Any]:

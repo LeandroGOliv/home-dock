@@ -1,4 +1,5 @@
-"""Icons painted with QPainter, so the app ships no image files."""
+"""Icons painted with QPainter, so the app ships no image files (``HomeDock.exe`` gets its
+icon from :func:`bulb_pixmap` too, at build time)."""
 
 from __future__ import annotations
 
@@ -18,11 +19,12 @@ def tray_icon() -> QIcon:
     """A light bulb, readable on light and dark taskbars."""
     icon = QIcon()
     for size in SIZES:
-        icon.addPixmap(_bulb(size))
+        icon.addPixmap(bulb_pixmap(size))
     return icon
 
 
-def _bulb(size: int) -> QPixmap:
+def bulb_pixmap(size: int) -> QPixmap:
+    """The tray bulb, ``size`` pixels square."""
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)

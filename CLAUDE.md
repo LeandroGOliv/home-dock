@@ -29,7 +29,8 @@ src/homedock/
   core/      control service, groups, scenes (generic devices only)
   storage/   config/persistence under %APPDATA%\HomeDock
   ui/        tray, flyout pages, per-type control panels, custom QPainter widgets
-scripts/     dev tooling (diagnostics, pre-commit hooks)
+scripts/     dev tooling (diagnostics, pre-commit hooks, exe icon)
+packaging/   PyInstaller spec of HomeDock.exe
 tests/       pytest suite (no network, no real devices)
 ```
 
@@ -77,7 +78,11 @@ device IDs, IPs of the home network, wizard dumps, logs, local configs.
 - Only `devices.example.json` (fictitious values, IPs from 192.0.2.0/24) is committed.
 - Never print local keys or credentials — in logs, tests, scripts, PR text or chat. Mask
   them (e.g. `ab…ef`). Device IDs and IPs are also masked in logs.
-- The app writes data **only** to `%APPDATA%\HomeDock\`, never to the repo folder.
+- The app writes data **only** to `%APPDATA%\HomeDock\`, never to the repo folder. The
+  one exception is its own `HomeDock` value under `HKCU\…\CurrentVersion\Run` ("Iniciar
+  com o Windows"); tests use an in-memory registry, never the real `Run` key.
+- `HomeDock.exe` bundles code only — never `devices.json`, `config.json`, logs or wizard
+  files (the spec refuses to build otherwise).
 - Tests never use real devices or real secrets; use fakes and fictitious values.
 - Before every commit run `git status` and inspect the staged file list. Never use
   `git add -A`/`git add .` blindly. Never bypass hooks (`--no-verify`).

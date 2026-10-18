@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QEvent, QTimer
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QMenu
 
 import homedock.ui.app as app_module
@@ -18,7 +19,8 @@ from homedock.core import ControlService, GroupBook, Target
 from homedock.core.recovery import FAILURES_BEFORE_SCAN
 from homedock.devices import Capability, DeviceState, DeviceType, FoundDevice
 from homedock.devices.fake import FakeDevice
-from homedock.storage import AppPaths, open_app_data
+from homedock.storage import AppPaths, StartWithWindows, open_app_data
+from homedock.storage.autostart import ENTRY, RUN_KEY
 from homedock.storage.logs import LOG_FILE
 from homedock.ui import strings
 from homedock.ui.app import HomeDock
@@ -149,32 +151,43 @@ def test_the_tray_uses_the_names_and_scenes_of_the_config(qtbot, data, executor)
     home.close()
 
 
-def test_start_with_windows_is_saved_in_the_config_file(qtbot, data, executor):
+def start_item(home: HomeDock) -> QAction:
+    return next(a for a in home.tray.menu.actions() if a.text() == strings.START_WITH_WINDOWS)
+
+
+def test_start_with_windows_writes_the_run_entry_not_the_config(qtbot, data, executor, registry):
     home = make_home(data, executor)
-    item = next(a for a in home.tray.menu.actions() if a.text() == strings.START_WITH_WINDOWS)
+    config = data.paths.config_file.read_text(encoding="utf-8")
 
-    item.trigger()
+    start_item(home).trigger()
 
-    saved = json.loads(data.paths.config_file.read_text(encoding="utf-8"))
-    assert saved["settings"]["start_with_windows"] is True
-    assert data.config.settings.start_with_windows is True
+    assert registry.values == {(RUN_KEY, ENTRY): home.start_with_windows.command}
+    assert data.paths.config_file.read_text(encoding="utf-8") == config
     home.close()
 
 
-def test_start_with_windows_reverts_when_the_config_cannot_be_written(
-    qtbot, data, executor, monkeypatch
+def test_start_with_windows_shows_the_run_entry(qtbot, data, executor, registry):
+    registry.values[RUN_KEY, ENTRY] = StartWithWindows().command
+    home = make_home(data, executor)
+    assert start_item(home).isChecked()
+
+    del registry.values[RUN_KEY, ENTRY]  # e.g. removed by another tool
+    home.tray.menu.aboutToShow.emit()
+
+    assert not start_item(home).isChecked()
+    home.close()
+
+
+def test_start_with_windows_reverts_when_the_registry_cannot_be_written(
+    qtbot, data, executor, registry
 ):
     home = make_home(data, executor)
-    item = next(a for a in home.tray.menu.actions() if a.text() == strings.START_WITH_WINDOWS)
+    registry.fail = True
 
-    def fail(_config):
-        raise PermissionError("read-only")
+    start_item(home).trigger()
 
-    monkeypatch.setattr(data, "save", fail)
-    item.trigger()
-
-    assert not item.isChecked()
-    assert data.config.settings.start_with_windows is False
+    assert not start_item(home).isChecked()
+    assert registry.values == {}
     home.close()
 
 

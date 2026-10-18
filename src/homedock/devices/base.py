@@ -153,3 +153,8 @@ class Device(Protocol):
         Capabilities the device does not support are skipped silently.
         """
         ...
+
+    def close(self) -> None:
+        """Release the connection (e.g. before the device is replaced). Blocks until the
+        I/O in progress ends; a later call connects again."""
+        ...

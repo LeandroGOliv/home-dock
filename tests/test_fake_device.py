@@ -41,3 +41,10 @@ def test_offline_fake_raises_device_error():
         fake.read_state()
     with pytest.raises(DeviceError):
         fake.apply(DeviceState(power=True))
+
+
+def test_close_is_recorded_and_the_fake_stays_usable():
+    fake = make_fake(state=DeviceState(power=True))
+    fake.close()
+    assert fake.closed
+    assert fake.read_state() == DeviceState(power=True)

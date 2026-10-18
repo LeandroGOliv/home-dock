@@ -1,6 +1,7 @@
 """Persistence: local config, groups, scenes and device import under %APPDATA%\\HomeDock."""
 
 from homedock.storage.app_data import AppData, DeviceReload, open_app_data
+from homedock.storage.autostart import StartWithWindows
 from homedock.storage.config import (
     CURRENT_SCHEMA,
     Config,
@@ -32,6 +33,7 @@ __all__ = [
     "IpUpdate",
     "LoadedConfig",
     "Settings",
+    "StartWithWindows",
     "import_devices",
     "load_config",
     "open_app_data",

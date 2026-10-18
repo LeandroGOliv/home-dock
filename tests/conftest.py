@@ -37,3 +37,35 @@ def restore_theme():
     colors = theme.colors
     yield
     theme.use(colors)
+
+
+class MemoryRegistry:
+    """An in-memory ``HKEY_CURRENT_USER``: ``values[key, name]``; ``fail`` makes writes fail."""
+
+    def __init__(self) -> None:
+        self.values: dict[tuple[str, str], object] = {}
+        self.fail = False
+
+    def read(self, key: str, name: str) -> object | None:
+        return self.values.get((key, name))
+
+    def write(self, key: str, name: str, value: str) -> None:
+        if self.fail:
+            raise PermissionError("access denied")
+        self.values[key, name] = value
+
+    def delete(self, key: str, name: str) -> None:
+        if self.fail:
+            raise PermissionError("access denied")
+        self.values.pop((key, name), None)
+
+
+@pytest.fixture
+def registry() -> MemoryRegistry:
+    return MemoryRegistry()
+
+
+@pytest.fixture(autouse=True)
+def isolated_registry(registry, monkeypatch):
+    """No test may touch the real ``Run`` key: the app's registry is an in-memory one."""
+    monkeypatch.setattr("homedock.storage.autostart.default_registry", lambda: registry)

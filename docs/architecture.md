@@ -37,7 +37,7 @@ imports Qt.
 
 Modules: `base.py` (generic model), `spec.py` (wizard entry), `tuya.py` (tinytuya
 transport), `rgb_bulb.py` (bulb driver, the only place with bulb DPS), `registry.py`
-(driver selection), `fake.py` (in-memory device for tests).
+(driver selection), `scan.py` (LAN discovery), `fake.py` (in-memory device for tests).
 
 - `DeviceType` — e.g. `RGB_BULB` (later `AIR_CONDITIONER`).
 - `Capability` — `POWER`, `WORK_MODE`, `BRIGHTNESS`, `COLOR_HSV`, `COLOR_TEMPERATURE`
@@ -51,8 +51,10 @@ transport), `rgb_bulb.py` (bulb driver, the only place with bulb DPS), `registry
   `capabilities`, `get()`, `restricted_to()`, `merged()`, `to_dict()` / `from_dict()`
   (JSON-compatible, used by storage). Out-of-range values raise.
 - `Device` (protocol) — `id`, `name`, `type`, `capabilities`, `online`, `read_state()`,
-  `apply(changes) -> DeviceState`. Both I/O methods block and raise `DeviceError`;
-  unsupported capabilities in `changes` are skipped silently.
+  `apply(changes) -> DeviceState`, `close()`. Both I/O methods block and raise
+  `DeviceError`; unsupported capabilities in `changes` are skipped silently. `close()`
+  releases the connection (blocking until the I/O in progress ends); a later call connects
+  again.
 - `DeviceSpec` — one wizard entry (id, name, local key, IP, version, category, DPS codes);
   its `repr` masks the ID/IP and never shows the key.
 - `TuyaLink` — raw DPS transport. `TinyTuyaLink` opens a **persistent socket lazily**
@@ -93,6 +95,15 @@ transport), `rgb_bulb.py` (bulb driver, the only place with bulb DPS), `registry
   DPS 20/21/22/24; DPS 23 adds `COLOR_TEMPERATURE`). Loading never connects. Invalid
   entries and devices without a driver become `UnsupportedDevice` (reason
   `invalid_entry` / `unknown_type`), never an exception.
+- **LAN discovery** — `scan_lan(scan_time=18)` returns a `FoundDevice(id, ip, version)`
+  per Tuya device whose UDP broadcast arrived in time (ports 6666/6667/7000, tinytuya's
+  scanner). It **never connects** to a device (`poll=False`, no TCP connection: the bulbs
+  accept one client, which the control service may hold); it listens, and tinytuya sends
+  its discovery request now and then. Only valid IPv4 addresses are kept (the broadcasts
+  are unauthenticated and the IPs go into `devices.json`). tinytuya loads a `devices.json` from the
+  working directory when given no devices, so it gets a placeholder list. A scan that
+  cannot run (e.g. a port taken) raises `DeviceError` without the library message; the
+  `FoundDevice` repr hides the ID and IP. Blocks: callers run it off the UI thread.
 - `homedock.masking` (layer-independent): `mask()`, `redact()` and `RedactingFilter` for
   logs. A test guards that no DPS code, `tinytuya` or driver module is referenced outside
   `devices/`.
@@ -129,6 +140,13 @@ protocol; tests guard that it never mentions `RgbBulb`, imports only the public
     waiting for a timeout; any other exception is logged and fails only that job. A
     partial state returned by a device is merged into the cached one. Logs mask device
     IDs.
+  - `replace_devices(devices)` swaps the device list (after "Procurar lâmpadas novas"
+    re-imported `devices.json`, e.g. with new IPs). A device keeping its id keeps its lane
+    (queued jobs run on the new object) and its cache; a removed one has its queued jobs
+    failed and its cache dropped; added ones get new lanes (the pool keeps its size, so a
+    long list may share workers). The objects left over are **closed on their lane's
+    worker**, after the I/O running on them and before the next job, since a device may
+    accept only one connection. A job for a device removed meanwhile fails at once.
   - `shutdown()` fails every queued job, makes later calls fail immediately
     (`ServiceClosedError`) and stops the pool it created (an injected executor is left
     running); no future is ever left pending.
@@ -137,8 +155,9 @@ protocol; tests guard that it never mentions `RgbBulb`, imports only the public
   `resolve()` returns the known members (a stale target resolves to nothing);
   `available_targets()` lists automatic groups (types present), user groups, devices.
 - **Groups** — `GroupBook` of `Group(id, name, members)`: create, rename, set members,
-  delete; a device may belong to many groups; mixed types allowed. Tuya groups are not
-  used. Names are trimmed and must not be blank.
+  delete, restore (undo a delete, at its position); a device may belong to many groups;
+  mixed types allowed. Tuya groups are not used. Names are trimmed and must not be blank.
+  `ControlService.groups` is the book in use; the UI replaces it after each saved change.
 - **Scenes** — `SceneBook` of `Scene(id, name, devices: {device id: DeviceState})`:
   create, rename, overwrite, delete, restore (undo a delete, at its position). Stored (by
   `storage`) as:
@@ -176,7 +195,12 @@ when `APPDATA` is unset), never in the repo or the working directory:
   the driver registry (never connects, never raises) and reports a problem (`missing`,
   `unreadable`, `invalid`) instead of failing; it also returns every sensitive value of
   the file (ID, key, IP, MAC, UUID, serial) so the logs can mask it. A UTF-8 BOM is
-  accepted.
+  accepted. `update_ips(path, found)` writes the IPs of a scan into the entries whose IP
+  is empty or another one (and the protocol version found when an entry has none); it
+  rewrites the file atomically, in the wizard's 4-space layout, only when something
+  changed, keeps every other field, leaves an unreadable file alone and returns
+  `IpUpdate(updated, not_imported)` — `not_imported` counts Tuya devices on the LAN that
+  the file does not list. Display names never go to this file.
 - `config.json` — display names, groups, scenes, settings (start with Windows, last
   target), as the frozen `Config` / `Settings` dataclasses:
 
@@ -212,17 +236,19 @@ when `APPDATA` is unset), never in the repo or the working directory:
   their secrets in the log filter), loads the config and writes the default `config.json`
   when there is none. `AppData.save(config)` persists changes. The UI start-up
   (`ui/app.py`) calls it once.
-
-"Recarregar dispositivos" re-imports `devices.json`, runs a local `tinytuya` scan to fill or
-refresh IPs, and warns when a Tuya device on the LAN is missing from `devices.json`
-("rode o wizard de novo").
+- **Device reload** ("Procurar lâmpadas novas") — `AppData.reload_devices(scan)` runs the
+  scan, registers the IDs and IPs found in the log filter, `update_ips()`, then imports
+  `devices.json` again and returns a `DeviceReload(devices, updated_ips, not_imported,
+  scan_failed, write_failed)`. A failed scan still re-imports the file; when the file
+  cannot be read, `AppData.devices` keeps the devices imported before (`devices.problem`
+  tells). Blocks for the whole scan and never raises.
 
 ## UI
 
 Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py`,
 `icons.py`, `flyout.py`, `placement.py`, `target_model.py`, `selector.py`, `panels.py`,
-`bulb_panel.py`, `controls.py`, `scenes.py`, `theme.py`, `widgets.py`, `dial_math.py`,
-`dials.py`, `strings.py`. The UI may import `core`, `storage`,
+`bulb_panel.py`, `controls.py`, `scenes.py`, `manage.py`, `theme.py`, `widgets.py`,
+`dial_math.py`, `dials.py`, `strings.py`. The UI may import `core`, `storage`,
 `masking` and the public `homedock.devices` API only (guarded by a test).
 
 - **Start-up** — `homedock` (`__main__` → `ui.app.run()`): takes the single-instance lock
@@ -230,7 +256,10 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
   before touching any file — also when the first one runs with other rights, e.g.
   elevated, and the mutex cannot even be opened), runs the storage start-up, builds the `ControlService` over
   the imported devices and shows the tray. The app does not quit when a window closes;
-  "Sair" quits, and the service is shut down on the way out.
+  "Sair" quits, and the service is shut down on the way out. It persists what the flyout
+  changes (`config.json`: last target, scenes, names, groups) and runs the device reload
+  on a **daemon thread** (`run_in_thread`: quitting never waits for a scan): scan,
+  `AppData.reload_devices()`, then `ControlService.replace_devices()` with the new import.
 - **Thread bridge** — `ServiceBridge` (a `QObject` on the UI thread) re-emits the service
   events (`state_changed`, `online_changed`) as Qt signals and runs future callbacks
   (`when_done`) on the UI thread, always queued (never re-entrant). Widgets are never
@@ -255,19 +284,24 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
     can be toggled in a row (`StayOpenMenu`). The rule is the item being checkable, not
     the device type. Every other item closes the menu as usual, and so do Esc and a click
     outside it.
+  - The device list is read from the service when the menu opens; after a reload of the
+    devices (different objects or ids) the menu is rebuilt.
 - **Flyout** (`flyout.py`) — a frameless 360 px tool window with painted rounded corners.
   It opens in the tray corner of the screen under the cursor, on the taskbar's side
   (`placement.py`: bottom-right, top-right with the taskbar on top, bottom-left with it on
   the left; an auto-hidden taskbar counts as bottom), 12 px from the edges, and grows
   upwards with its content (one geometry change, so it does not jump), never taller than
-  the available area. It hides on Esc and when it loses focus; a tray click within 0.5 s
-  of such a hide does not reopen it (that click is what took the focus away).
+  the available area (a manage page caps its height there and scrolls its middle part).
+  Before measuring, the size hints of the current page are refreshed: a hidden window
+  does not handle layout requests, and the pages change while it is closed (each opening
+  starts on the main page). It hides on Esc and when it loses focus; a tray click within
+  0.5 s of such a hide does not reopen it (that click is what took the focus away).
   "Abrir painel" always opens it. `toggle()` / `open()` are what the tray calls;
   `shutdown()` detaches its bridge when the app quits.
   - **Page stack** — `PageStack` shows only its top page; the main page is the base and
     never popped. Each opening starts on the main page with the list closed.
-    "Gerenciar grupos e lâmpadas" pushes the manage page (navigation only until issue
-    #12), whose back button pops it.
+    "Gerenciar grupos e lâmpadas" pushes the manage page; a group pushes the group page.
+    Going back to the main page reloads it (groups, names or devices may have changed).
   - **Main page** — the target selector button (title + subtitle, chevron) and the
     round power button, then the panel of the target. Opening the flyout re-reads names
     and groups, keeps the target if it still exists (else the last target saved in
@@ -322,8 +356,11 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
 - **Controls** (`controls.py`) — generic Windows 11 widgets: `Slider` (a press anywhere
   jumps there and starts a drag; arrows, Page Up/Down, Home/End, with a focus ring when
   reached with the keyboard; `moved` / `released` and `set_value()` like the dials, also
-  ending a drag when hidden or disabled), `SliderRow` (title + value in percent) and
-  `SegmentedControl` (exclusive options, or none; `chosen` only for the user's picks).
+  ending a drag when hidden or disabled), `SliderRow` (title + value in percent),
+  `SegmentedControl` (exclusive options, or none; `chosen` only for the user's picks),
+  `LinkButton` (accent text link), `NameEditor` (inline name field with ✓ / ✕) and
+  `Notice` (discreet message with an optional action, hiding after 6 s but not under the
+  pointer), shared by the scenes and the manage pages.
 - **Scenes in the flyout** (`scenes.py`) — `ScenesSection`, below the panel (hidden while
   the target list is open, shown for every target, also mixed groups). Generic: it only
   calls `apply_scene()` / `capture()` and edits a `SceneBook`; the tray menu reads the
@@ -357,8 +394,36 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
     then shows what is saved, so a failed save (`OSError`) leaves the old list. Opening the
     flyout re-reads the scenes, scrolls back to the first ones, closes the name field and hides the
     notice.
-- **Manage pages** (issue #12) — Gerenciar grupos e lâmpadas → Editar grupo (name,
-  members, delete).
+- **Manage pages** (`manage.py`) — generic: sections per device type, worded by
+  `strings.noun()`.
+  - **Grupos e lâmpadas** (`ManagePage`) — "Grupos (cômodos)" with "+ Novo grupo", a card
+    per group (name, members' display names or "Vazio", chevron), the hint that the
+    automatic group always includes every device, then one section per device type: a row
+    per device with its status (green dot when its last I/O succeeded, a ring and
+    "· offline" when it failed; live from the bridge) and a pencil. The pencil swaps the
+    row for the inline name field (`NameEditor`, one at a time; Enter/✓ saves, Esc/✕
+    cancels without closing the flyout). Names are **local**: `save_names` writes
+    `config.names`; the wizard's own name removes the entry; `devices.json` is never
+    touched. "Procurar lâmpadas novas" starts the device reload (`DeviceReloader`: one at
+    a time, off the UI thread through the app's `reload_devices`; the button says
+    "Procurando lâmpadas na rede…" and is disabled meanwhile, also on a page opened while it
+    runs). When it ends the page rebuilds its lists and a notice tells the result: "2
+    lâmpadas · 1 IP atualizado" / "IPs em dia", a scan or read failure, IPs that could not
+    be saved, and "n dispositivos Tuya na rede não estão no devices.json: rode o wizard de
+    novo." If it ends while the main page is shown, the main page reloads.
+  - **Editar grupo / Novo grupo** (`GroupPage`) — the name (a text box; Enter saves), a
+    check-box row per device of each type with its other groups ("também em Quarto"), the
+    hint that a device may be in many groups, "Excluir grupo" (existing groups only) and
+    "Salvar" (disabled for a blank name). Saving keeps the members' order, appends the
+    newly checked ones and keeps members no longer known (removed from `devices.json`).
+    Back discards the changes. Deleting returns to the manage page with "“Sala” excluído"
+    and **Desfazer** (`GroupBook.restore` at its position).
+  - Every change goes through `Groups.change()`: applied to a copy of
+    `ControlService.groups`, persisted with `save_groups` (`config.groups`), then the copy
+    becomes the service's book — a failed save (`OSError`) changes nothing and shows "Não
+    foi possível salvar os grupos".
+  - A widget must get its parent before `setVisible(True)`: shown without one, it opens
+    as a window of its own, which takes the activation and closes the flyout.
 - **Theme** (`theme.py`) — colours, sizes and fonts measured on the mockups (dark theme,
   accent `#F2B544`, Segoe UI Variable/Segoe UI, 14/13 px). Widgets read them only from
   there; following the Windows theme and accent (issue #13) replaces these values.

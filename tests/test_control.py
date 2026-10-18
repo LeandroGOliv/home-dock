@@ -8,7 +8,12 @@ from enum import StrEnum
 import pytest
 
 from executors import ManualExecutor
-from homedock.core.control import THROTTLE_INTERVAL, CommandResult, ControlService
+from homedock.core.control import (
+    THROTTLE_INTERVAL,
+    CommandResult,
+    ControlService,
+    ServiceClosedError,
+)
 from homedock.core.groups import GroupBook
 from homedock.core.scenes import Scene
 from homedock.core.targets import Target
@@ -713,3 +718,125 @@ def test_more_devices_than_the_minimum_pool_still_run_in_parallel():
     finally:
         service.shutdown()
     assert len(result.succeeded) == count
+
+
+# --- replacing the devices (devices.json reloaded) ------------------------------------------
+
+
+def test_replacing_the_devices_changes_the_known_devices_and_targets(make_service, executor):
+    service = make_service(bulb("b1"), bulb("b2"))
+    new_b1, b3 = bulb("b1"), bulb("b3")
+    service.replace_devices([new_b1, b3])
+    assert service.devices == [new_b1, b3]
+    assert service.members(ALL_BULBS) == [new_b1, b3]
+    assert done(service.send(ALL_BULBS, DeviceState(power=True)), executor).succeeded == (
+        "b1",
+        "b3",
+    )
+    assert new_b1.applied == b3.applied == [DeviceState(power=True)]
+
+
+def test_a_replaced_device_keeps_its_cache_and_a_removed_one_loses_it(make_service, executor):
+    service = make_service(bulb("b1", state=DeviceState(power=True)), bulb("b2"))
+    done(service.refresh(ALL_BULBS), executor)
+    service.replace_devices([bulb("b1")])
+    assert service.state("b1") == DeviceState(power=True)
+    assert service.is_online("b1") is True
+    assert service.state("b2") is None
+    assert service.is_online("b2") is None
+
+
+def test_the_old_objects_are_closed_on_a_worker(make_service, executor):
+    old_b1, old_b2 = bulb("b1"), bulb("b2")
+    service = make_service(old_b1, old_b2)
+    service.replace_devices([bulb("b1")])
+    assert not old_b1.closed and not old_b2.closed  # never on the calling thread
+    executor.run_all()
+    assert old_b1.closed and old_b2.closed
+
+
+def test_an_object_passed_again_is_kept_open(make_service, executor):
+    device = bulb("b1")
+    service = make_service(device)
+    service.replace_devices([device])
+    executor.run_all()
+    assert not device.closed
+    assert service.devices == [device]
+
+
+def test_queued_jobs_of_a_kept_device_run_on_the_new_object(make_service, executor):
+    log: list = []
+    old = LoggingFake("b1", "b1", DeviceType.RGB_BULB, BULB, log=log)
+    new = LoggingFake("b1", "b1", DeviceType.RGB_BULB, BULB, log=log)
+    service = make_service(old)
+    future = service.send(Target.device("b1"), DeviceState(power=True))
+    service.replace_devices([new])
+    assert done(future, executor).succeeded == ("b1",)
+    assert old.applied == []
+    assert new.applied == [DeviceState(power=True)]
+    assert old.closed
+
+
+def test_the_old_object_is_closed_after_its_running_job_and_before_the_next(
+    make_service, executor, clock
+):
+    events: list = []
+
+    class Tracked(FakeDevice):
+        def apply(self, changes: DeviceState) -> DeviceState:
+            events.append((id(self), "apply"))
+            return super().apply(changes)
+
+        def close(self) -> None:
+            events.append((id(self), "close"))
+            super().close()
+
+    old, new = (
+        Tracked("b1", "b1", DeviceType.RGB_BULB, BULB),
+        Tracked("b1", "b1", DeviceType.RGB_BULB, BULB),
+    )
+    service = make_service(old)
+    service.send(Target.device("b1"), DeviceState(power=True))
+    service.send(Target.device("b1"), DeviceState(brightness=50))
+    # The first write is running when the devices are replaced.
+    original = old.apply
+
+    def apply_and_replace(changes: DeviceState) -> DeviceState:
+        result = original(changes)
+        service.replace_devices([new])
+        return result
+
+    old.apply = apply_and_replace
+    executor.run_all()
+    assert events == [(id(old), "apply"), (id(old), "close"), (id(new), "apply")]
+
+
+def test_queued_jobs_of_a_removed_device_fail(make_service, executor):
+    service = make_service(bulb("b1"), bulb("b2"))
+    future = service.send(ALL_BULBS, DeviceState(power=True))
+    service.replace_devices([bulb("b1")])
+    result = done(future, executor)
+    assert result.succeeded == ("b1",)
+    assert result.failed == ("b2",)
+
+
+def test_a_failing_close_is_logged_and_the_lane_goes_on(make_service, executor, caplog):
+    class Stubborn(FakeDevice):
+        def close(self) -> None:
+            raise OSError("socket already gone")
+
+    service = make_service(Stubborn("b1", "b1", DeviceType.RGB_BULB, BULB))
+    new = bulb("b1")
+    service.replace_devices([new])
+    with caplog.at_level(logging.ERROR):
+        executor.run_all()
+    assert "close" in caplog.text
+    assert done(service.send(Target.device("b1"), DeviceState(power=True)), executor).ok
+    assert new.applied == [DeviceState(power=True)]
+
+
+def test_replacing_the_devices_after_shutdown_fails(make_service):
+    service = make_service(bulb("b1"))
+    service.shutdown()
+    with pytest.raises(ServiceClosedError):
+        service.replace_devices([bulb("b2")])

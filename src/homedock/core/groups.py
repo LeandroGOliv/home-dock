@@ -44,6 +44,15 @@ class GroupBook:
     def delete(self, group_id: str) -> None:
         del self._groups[group_id]
 
+    def restore(self, group: Group, index: int) -> Group:
+        """Put a deleted ``group`` back at ``index`` (undo); raises if it is still here."""
+        if group.id in self._groups:
+            raise ValueError("group is already in the book")
+        groups = self.all()
+        groups.insert(index, group)
+        self._groups = {g.id: g for g in groups}
+        return group
+
     def _store(self, group: Group) -> Group:
         self._groups[group.id] = group
         return group

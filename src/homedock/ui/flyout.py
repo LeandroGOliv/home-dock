@@ -2,8 +2,9 @@
 
 One window holding a stack of pages. The main page has the target selector, the power
 button for the selected target, the control panel of the target's device type (from the
-panel registry) and the scenes. The flyout reads the real state of the devices each time it
-opens and closes when it loses focus or on Esc.
+panel registry) and the scenes; "Gerenciar grupos e lâmpadas" pushes the manage pages. The
+flyout reads the real state of the devices each time it opens and closes when it loses focus
+or on Esc.
 """
 
 from __future__ import annotations
@@ -19,17 +20,17 @@ from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QCursor, QGuiApplication, QKeyEvent, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
-from homedock.core import ControlService, Scene, Target
+from homedock.core import ControlService, Group, Scene, Target
 from homedock.devices import DeviceState
+from homedock.storage import DeviceReload
 from homedock.ui import strings, theme
 from homedock.ui.bridge import ServiceBridge
-from homedock.ui.icons import paint_chevron
+from homedock.ui.manage import DeviceReloader, GroupPage, Groups, ManagePage
 from homedock.ui.panels import PanelContext, PanelRegistry, default_panels
 from homedock.ui.placement import flyout_position
 from homedock.ui.scenes import ScenesSection
 from homedock.ui.selector import PowerButton, TargetButton, TargetList
 from homedock.ui.target_model import build_model
-from homedock.ui.widgets import PaintedButton, label
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +53,10 @@ class PageStack(QWidget):
 
     def current(self) -> QWidget:
         return self._pages[-1]
+
+    def pages(self) -> list[QWidget]:
+        """Every page, the base first."""
+        return list(self._pages)
 
     def depth(self) -> int:
         return len(self._pages)
@@ -232,46 +237,6 @@ class MainPage(QWidget):
         self._bridge.when_done(future, self._sync)
 
 
-class BackButton(PaintedButton):
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setFixedSize(32, 32)
-        self.setAccessibleName(strings.BACK)
-        self.setToolTip(strings.BACK)
-
-    def paintEvent(self, _event: QPaintEvent) -> None:
-        painter = self.painter()
-        self.paint_hover(painter)
-        glyph = QRectF(0, 0, theme.ICON, theme.ICON)
-        glyph.moveCenter(QRectF(self.rect()).center())
-        paint_chevron(painter, glyph, theme.TEXT, Qt.Edge.LeftEdge)
-        painter.end()
-
-
-class ManagePage(QWidget):
-    """ "Grupos e lâmpadas". Only the navigation for now: the content comes with issue #12."""
-
-    back_requested = Signal()
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.back_button = BackButton()
-        self.back_button.clicked.connect(self.back_requested)
-        title = label(strings.MANAGE_TITLE, theme.font(theme.TITLE, bold=True), theme.TEXT)
-        message = label(strings.MANAGE_SOON, theme.font(theme.CAPTION), theme.TEXT_SECONDARY)
-        message.setWordWrap(True)
-
-        header = QHBoxLayout()
-        header.setSpacing(theme.SPACING)
-        header.addWidget(self.back_button)
-        header.addWidget(title, 1)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(theme.PADDING, theme.PADDING, theme.PADDING, theme.PADDING)
-        layout.setSpacing(theme.PADDING)
-        layout.addLayout(header)
-        layout.addWidget(message)
-
-
 class Flyout(QWidget):
     """The control window. ``toggle()`` / ``open()`` are what the tray calls; call
     ``shutdown()`` when the app quits."""
@@ -285,11 +250,16 @@ class Flyout(QWidget):
         set_last_target: Callable[[Target], None],
         scenes: Callable[[], Sequence[Scene]],
         save_scenes: Callable[[Sequence[Scene]], None],
+        save_names: Callable[[Mapping[str, str]], None],
+        save_groups: Callable[[Sequence[Group]], None],
+        reload_devices: Callable[[], Future[DeviceReload]],
         panels: PanelRegistry | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        """``set_last_target`` and ``save_scenes`` persist the selected target and the scenes;
-        they raise ``OSError``."""
+        """``set_last_target``, ``save_scenes``, ``save_names`` and ``save_groups`` persist the
+        selected target, the scenes, the display names and the groups; they raise
+        ``OSError``. ``reload_devices`` starts "Procurar lâmpadas novas" off the UI thread
+        (it also hands the new devices to the service)."""
         flags = (
             Qt.WindowType.Tool
             | Qt.WindowType.FramelessWindowHint
@@ -303,8 +273,13 @@ class Flyout(QWidget):
         self.setFixedWidth(theme.WIDTH)
         self._clock = clock
         self._auto_hidden_at = -math.inf
+        self._service = service
+        self._names = names
+        self._save_names = save_names
 
         self.bridge = ServiceBridge(service, self)
+        self.groups = Groups(service, save_groups)
+        self.reloader = DeviceReloader(self.bridge, reload_devices, self)
         self.main = MainPage(
             service,
             self.bridge,
@@ -323,6 +298,7 @@ class Flyout(QWidget):
         self.main.manage_requested.connect(self._open_manage)
         self.main.layout_changed.connect(self._fit)
         self.pages.changed.connect(self._fit)
+        self.reloader.finished.connect(self._on_devices_reloaded)
 
     def toggle(self) -> None:
         if self.isVisible():
@@ -346,10 +322,60 @@ class Flyout(QWidget):
         self.bridge.detach()
         self.hide()
 
+    # --- manage pages ------------------------------------------------------------------
+
     def _open_manage(self) -> None:
-        page = ManagePage()
-        page.back_requested.connect(self.pages.pop)
+        page = ManagePage(
+            self._service,
+            self.bridge,
+            self.groups,
+            self.reloader,
+            names=self._names,
+            save_names=self._save_names,
+        )
+        page.back_requested.connect(self._back_to_main)
+        page.edit_requested.connect(self._open_group)
+        page.layout_changed.connect(self._fit)
         self.pages.push(page)
+
+    def _open_group(self, group: Group | None) -> None:
+        page = GroupPage(self._service, self.groups, group, names=self._names())
+        page.back_requested.connect(self.pages.pop)
+        page.saved.connect(self._back_to_manage)
+        page.deleted.connect(self._on_group_deleted)
+        page.layout_changed.connect(self._fit)
+        self.pages.push(page)
+        if group is None:
+            page.name_field.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _back_to_main(self) -> None:
+        """The groups, names or devices may have changed: show them on the main page."""
+        self.pages.reset()
+        self.main.reload()
+        self._fit()
+
+    def _back_to_manage(self) -> ManagePage | None:
+        self.pages.pop()
+        page = self._manage_page()
+        if page is not None:
+            page.reload()
+        return page
+
+    def _on_group_deleted(self, group: Group, index: int) -> None:
+        page = self._back_to_manage()
+        if page is not None:
+            page.offer_undo(group, index)
+
+    def _on_devices_reloaded(self, result: DeviceReload | None) -> None:
+        page = self._manage_page()
+        if page is not None:
+            page.reload()
+            page.show_reload(result)
+        elif self.pages.current() is self.main and self.isVisible():
+            self.main.reload()
+
+    def _manage_page(self) -> ManagePage | None:
+        return next((p for p in self.pages.pages() if isinstance(p, ManagePage)), None)
 
     def _fit(self) -> None:
         """Take the height of the current page, within the screen, in the tray corner."""
@@ -363,6 +389,8 @@ class Flyout(QWidget):
         if height > room and not target_list.isHidden():  # a small screen: the rows scroll
             target_list.set_max_height(target_list.sizeHint().height() - (height - room))
             height = self._content_height()
+        if self.pages.current() is not self.main:
+            height = min(height, room)  # the manage pages scroll their middle part
         size = QSize(theme.WIDTH, height)
         position = flyout_position(screen.geometry(), area, size, theme.MARGIN)
         self.setFixedHeight(height)
@@ -370,6 +398,11 @@ class Flyout(QWidget):
 
     def _content_height(self) -> int:
         layout = self.layout()
+        # A hidden window does not handle layout requests, so the size hints cached for the
+        # current page may be stale (e.g. its content changed while the flyout was closed).
+        page = self.pages.current()
+        for widget in (*page.findChildren(QWidget), page, self.pages):
+            widget.updateGeometry()
         layout.activate()
         if layout.hasHeightForWidth():
             return layout.totalHeightForWidth(theme.WIDTH)

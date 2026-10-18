@@ -29,10 +29,27 @@ CHOOSE_TARGET = "Escolher o que controlar"
 POWER = "Ligar ou desligar"
 MANAGE = "Gerenciar grupos e lâmpadas"
 
-# Flyout: manage page (filled in by the groups issue)
+# Flyout: manage pages (groups and devices)
 MANAGE_TITLE = "Grupos e lâmpadas"
-MANAGE_SOON = "Em breve: criar grupos, renomear lâmpadas e procurar lâmpadas novas."
 BACK = "Voltar"
+USER_GROUPS = "Grupos (cômodos)"
+NEW_GROUP = "+ Novo grupo"
+NO_GROUPS = "Nenhum grupo criado"
+AUTOMATIC_GROUP_HINT = '"Todas as lâmpadas" é automático e sempre inclui todas.'
+DEVICE_NAME = "Novo nome"
+FIND_DEVICES = "Procurar lâmpadas novas"
+FINDING_DEVICES = "Procurando lâmpadas na rede…"
+NAME_SAVE_FAILED = "Não foi possível salvar o nome"
+EDIT_GROUP = "Editar grupo"
+NEW_GROUP_TITLE = "Novo grupo"
+GROUP_NAME = "Nome do grupo"
+MANY_GROUPS_HINT = "Uma lâmpada pode estar em mais de um grupo."
+DELETE_GROUP = "Excluir grupo"
+GROUPS_SAVE_FAILED = "Não foi possível salvar os grupos"
+DEVICES_MISSING = "devices.json não encontrado · veja a configuração do HomeDock"
+DEVICES_UNREADABLE = "Não foi possível ler o devices.json"
+SCAN_FAILED = "Não foi possível procurar na rede"
+IPS_NOT_SAVED = "não foi possível salvar os IPs novos"
 
 # Flyout: scenes
 SAVE_CURRENT = "+ Salvar atual"
@@ -114,6 +131,37 @@ def device_detail(groups: Sequence[str], online: bool | None) -> str:
     if online is False:
         parts.append(OFFLINE)
     return SEPARATOR.join(parts)
+
+
+def also_in(groups: Sequence[str]) -> str:
+    """The other groups of a device, e.g. "também em Quarto"."""
+    return f"também em {', '.join(groups)}" if groups else ""
+
+
+def members_heading(words: Noun) -> str:
+    """E.g. "Lâmpadas neste grupo"."""
+    return f"{words.plural} neste grupo"
+
+
+def group_deleted(group: str) -> str:
+    """E.g. "“Sala” excluído"."""
+    return f"“{group}” excluído"
+
+
+def devices_reloaded(count: int, updated_ips: int, words: Noun) -> str:
+    """E.g. "2 lâmpadas · 1 IP atualizado", or "2 lâmpadas · IPs em dia"."""
+    amount = f"{count} {(words.singular if count == 1 else words.plural).lower()}"
+    if updated_ips == 0:
+        return f"{amount}{SEPARATOR}IPs em dia"
+    ips = "1 IP atualizado" if updated_ips == 1 else f"{updated_ips} IPs atualizados"
+    return f"{amount}{SEPARATOR}{ips}"
+
+
+def not_imported(count: int) -> str:
+    """Tuya devices on the network that devices.json does not list."""
+    if count == 1:
+        return "1 dispositivo Tuya na rede não está no devices.json: rode o wizard de novo."
+    return f"{count} dispositivos Tuya na rede não estão no devices.json: rode o wizard de novo."
 
 
 def new_scene_name(taken: Iterable[str]) -> str:

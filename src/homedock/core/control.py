@@ -7,6 +7,8 @@ parallel. A write queued behind a pending write of the same capabilities replace
 (latest value wins: slider/ring drags collapse into few writes); consecutive reads merge.
 Writes to a device are spaced by ``throttle`` seconds. When a device is unreachable, the
 jobs queued behind the failed one fail at once instead of each waiting for a timeout.
+The devices may be replaced (``devices.json`` reloaded); a device keeping its id keeps its
+lane.
 """
 
 from __future__ import annotations
@@ -73,6 +75,7 @@ class _Lane:
     jobs: deque[_Job] = field(default_factory=deque)
     busy: bool = False
     last_write: float | None = None
+    retired: list[Device] = field(default_factory=list)  # replaced: close before the next job
 
 
 class ControlService:
@@ -166,6 +169,46 @@ class ControlService:
         entries = ((by_id[i], s) for i, s in scene.devices.items() if i in by_id)
         return self._dispatch(entries, unknown)
 
+    def replace_devices(self, devices: Iterable[Device]) -> None:
+        """Control ``devices`` from now on, e.g. after re-importing them with new addresses.
+
+        A device keeping its id keeps its lane (queued jobs run on the new object) and its
+        cached state; jobs queued for a removed device fail and its cache is dropped. The
+        objects left over are closed on a worker, once the I/O running on them ends and
+        before the next job (the device may accept only one connection). Raises
+        ``ServiceClosedError`` after ``shutdown()``.
+        """
+        devices = list(devices)
+        dropped: list[_Job] = []
+        with self._lock:
+            if self._closed:
+                raise ServiceClosedError("control service is shut down")
+            lanes: dict[str, _Lane] = {}
+            for device in devices:
+                lane = self._lanes.get(device.id) or _Lane(device)
+                if lane.device is not device:
+                    lane.retired.append(lane.device)
+                    lane.device = device
+                lanes[device.id] = lane
+            for device_id, lane in self._lanes.items():
+                if device_id not in lanes:
+                    lane.retired.append(lane.device)
+                    dropped.extend(lane.jobs)
+                    lane.jobs.clear()
+                    self._states.pop(device_id, None)
+                    self._online.pop(device_id, None)
+            idle = [lane for lane in self._lanes.values() if lane.retired and not lane.busy]
+            for lane in idle:
+                lane.busy = True
+            self._lanes = lanes
+            self._devices = devices
+        removed = DeviceError("device was removed")
+        for job in dropped:
+            for waiter in job.waiters:
+                _settle(waiter, None, removed)
+        for lane in idle:
+            self._start(lane)
+
     def shutdown(self) -> None:
         """Fail queued jobs, refuse new ones and stop the worker pool the service created
         (an injected executor is left running)."""
@@ -208,44 +251,58 @@ class ControlService:
         future: Future[DeviceState] = Future()
         with self._lock:
             closed = self._closed
-            lane = self._lanes[device_id]
-            if not closed:
+            lane = self._lanes.get(device_id)
+            if lane is None:  # removed by replace_devices() meanwhile
+                closed = True
+            elif not closed:
                 tail = lane.jobs[-1] if lane.jobs else None
                 if tail is not None and tail.absorbs(changes):
                     tail.changes = changes
                     tail.waiters.append(future)
                 else:
                     lane.jobs.append(_Job(changes, [future]))
-            start = not closed and not lane.busy
+            start = not closed and lane is not None and not lane.busy
             if start:
                 lane.busy = True
-        if closed:
+        if lane is None:
+            _settle(future, None, DeviceError("device was removed"))
+        elif closed:
             _settle(future, None, ServiceClosedError("control service is shut down"))
         elif start:
-            try:
-                self._executor.submit(self._drain, lane)
-            except Exception as exc:  # e.g. the injected executor was shut down
-                log.error("cannot schedule I/O for device %s: %s", mask(device_id), exc)
-                self._drop_jobs(lane, exc, idle=True)
+            self._start(lane)
         return future
+
+    def _start(self, lane: _Lane) -> None:
+        """Drain ``lane`` on a worker (the caller has marked it busy)."""
+        try:
+            self._executor.submit(self._drain, lane)
+        except Exception as exc:  # e.g. the injected executor was shut down
+            log.error("cannot schedule I/O for device %s: %s", mask(lane.device.id), exc)
+            self._drop_jobs(lane, exc, idle=True)
 
     def _drain(self, lane: _Lane) -> None:
         job: _Job | None = None
         try:
             while True:
                 with self._lock:
-                    if not lane.jobs:
+                    retired, lane.retired = lane.retired, []
+                    if not retired and not lane.jobs:
                         lane.busy = False
                         return
-                    head_is_write = lane.jobs[0].changes is not None
+                    head_is_write = bool(lane.jobs) and lane.jobs[0].changes is not None
+                if retired:
+                    _close(retired)
+                    continue
                 wait = self._wait_before(lane) if head_is_write else 0.0
                 if wait > 0:
                     self._sleep(wait)  # values arriving meanwhile coalesce into the head job
                 with self._lock:
-                    if not lane.jobs:  # dropped by shutdown meanwhile
+                    # Dropped by shutdown, or the device was replaced meanwhile (close first).
+                    if not lane.jobs or lane.retired:
                         continue
                     job = lane.jobs.popleft()
-                self._run(lane, job)
+                    device = lane.device
+                self._run(lane, device, job)
                 job = None
         except BaseException as exc:
             # Never leave the lane busy with unanswered jobs, whatever went wrong.
@@ -263,8 +320,7 @@ class ControlService:
             return 0.0
         return last_write + self._throttle - self._clock()
 
-    def _run(self, lane: _Lane, job: _Job) -> None:
-        device = lane.device
+    def _run(self, lane: _Lane, device: Device, job: _Job) -> None:
         state: DeviceState | None = None
         error: BaseException | None = None
         online: bool | None = None
@@ -316,6 +372,14 @@ class ControlService:
             self.online_changed.emit(device_id, online)
         if state_changed:
             self.state_changed.emit(device_id, state)
+
+
+def _close(devices: Iterable[Device]) -> None:
+    for device in devices:
+        try:
+            device.close()
+        except Exception:
+            log.exception("cannot close device %s", mask(device.id))
 
 
 def _settle(

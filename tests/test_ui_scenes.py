@@ -13,7 +13,8 @@ from homedock.devices import Capability, Color, DeviceState, DeviceType, WorkMod
 from homedock.devices.fake import FakeDevice
 from homedock.ui import strings, theme
 from homedock.ui.bridge import ServiceBridge
-from homedock.ui.scenes import NOTICE_DURATION, ScenesSection
+from homedock.ui.controls import NOTICE_DURATION
+from homedock.ui.scenes import ScenesSection
 from ui_helpers import settle
 
 BULB = frozenset(Capability)

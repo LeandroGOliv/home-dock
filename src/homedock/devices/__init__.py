@@ -20,6 +20,7 @@ from homedock.devices.registry import (
     UnsupportedReason,
     default_registry,
 )
+from homedock.devices.scan import FoundDevice, scan_lan
 from homedock.devices.spec import DeviceSpec
 
 __all__ = [
@@ -33,8 +34,10 @@ __all__ = [
     "DeviceType",
     "Driver",
     "DriverRegistry",
+    "FoundDevice",
     "UnsupportedDevice",
     "UnsupportedReason",
     "WorkMode",
     "default_registry",
+    "scan_lan",
 ]

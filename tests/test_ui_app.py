@@ -2,7 +2,9 @@
 
 import contextlib
 import json
+import threading
 import uuid
+from concurrent.futures import Future
 from pathlib import Path
 
 import pytest
@@ -296,3 +298,86 @@ def test_scenes_renamed_or_deleted_in_the_flyout_persist_and_leave_the_tray(qtbo
     assert tray_scenes(home) == ["Ler"]
     home.close()
     assert [s.name for s in open_app_data(data.paths).config.scenes] == ["Ler"]
+
+
+# --- manage pages -----------------------------------------------------------------------------
+
+
+EXAMPLE = Path(__file__).parents[1] / "devices.example.json"
+EXAMPLE_ENTRY = json.loads(EXAMPLE.read_text(encoding="utf-8"))[0]
+
+
+def test_renaming_a_bulb_saves_the_config_and_never_touches_devices_json(qtbot, data, executor):
+    data.paths.devices_file.write_text(json.dumps([EXAMPLE_ENTRY]), encoding="utf-8")
+    before = data.paths.devices_file.read_bytes()
+    bulb = FakeDevice("b1", "Wizard", DeviceType.RGB_BULB, frozenset(Capability))
+    home = make_home(data, executor, bulb)
+    home.flyout.open()
+    home.flyout.main.manage_requested.emit()
+    row = home.flyout.pages.current().device_rows["b1"]
+
+    row.rename_button.click()
+    row.editor.field.setText("Abajur")
+    row.editor.save_button.click()
+    home.close()
+
+    assert open_app_data(data.paths).config.names == {"b1": "Abajur"}
+    assert data.paths.devices_file.read_bytes() == before
+
+
+def test_groups_edited_in_the_flyout_persist(qtbot, data, executor):
+    bulb = FakeDevice("b1", "Abajur", DeviceType.RGB_BULB, frozenset(Capability))
+    home = make_home(data, executor, bulb)
+    home.flyout.open()
+    home.flyout.main.manage_requested.emit()
+    home.flyout.pages.current().new_group_link.click()
+    page = home.flyout.pages.current()
+    page.name_field.setText("Sala")
+    page.member_rows[0].setChecked(True)
+    page.save_button.click()
+    home.close()
+
+    [group] = open_app_data(data.paths).config.groups
+    assert (group.name, group.members) == ("Sala", ("b1",))
+
+
+def test_reloading_the_devices_writes_the_ips_and_controls_the_new_devices(qtbot, tmp_path):
+    from homedock.devices import FoundDevice
+
+    paths = AppPaths(tmp_path / "HomeDock")
+    paths.root.mkdir()
+    paths.devices_file.write_text(json.dumps([{**EXAMPLE_ENTRY, "ip": ""}]), encoding="utf-8")
+    data = open_app_data(paths)
+    found = [FoundDevice(EXAMPLE_ENTRY["id"], "192.0.2.50", "3.4")]
+    ran = []
+
+    def in_background(work):
+        ran.append(work)
+        return Future()  # the test runs the work itself, as the worker would
+
+    # A manual executor: no queued read may reach the new (fictitious) address.
+    service = ControlService(data.devices.catalog.devices, executor=ManualExecutor(), throttle=0)
+    home = HomeDock(data, service, scan=lambda: found, in_background=in_background)
+    old = home.service.devices
+    home.flyout.open()
+    home.flyout.main.manage_requested.emit()
+    home.flyout.pages.current().find_button.click()
+    [work] = ran
+    result = work()
+    home.close()
+
+    assert result.updated_ips == 1
+    assert json.loads(paths.devices_file.read_text(encoding="utf-8"))[0]["ip"] == "192.0.2.50"
+    [device] = home.service.devices
+    assert device.id == EXAMPLE_ENTRY["id"] and device is not old[0]
+
+
+def test_run_in_thread_runs_the_work_off_the_calling_thread():
+    caller = threading.current_thread()
+    future = app_module.run_in_thread(threading.current_thread)
+    worker = future.result(timeout=5)
+    assert worker is not caller
+    assert worker.daemon
+    failing = app_module.run_in_thread(lambda: 1 / 0)
+    with pytest.raises(ZeroDivisionError):
+        failing.result(timeout=5)

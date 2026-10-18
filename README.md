@@ -16,8 +16,8 @@ Na v1 o foco são as **lâmpadas RGB Wi-Fi da Positivo Casa Inteligente** (Tuya 
 - opção de iniciar com o Windows.
 
 > **Status:** em desenvolvimento. O ícone na bandeja, o menu e o painel (flyout) com o
-> seletor de alvo, os controles de modo, cor e brilho e as cenas já funcionam; o
-> gerenciamento de grupos e lâmpadas ainda não — acompanhe as
+> seletor de alvo, os controles de modo, cor e brilho, as cenas e o gerenciamento de
+> grupos e lâmpadas já funcionam — acompanhe as
 > [issues](https://github.com/LeandroGOLiv/home-dock/issues) e milestones.
 
 ## Requisitos
@@ -47,22 +47,25 @@ Resumo:
    as lâmpadas ligadas, rode o wizard numa pasta **fora deste repositório**:
    `uv run --no-project --with tinytuya python -m tinytuya wizard`
 3. Copie o `devices.json` gerado para `%APPDATA%\HomeDock\devices.json`.
-4. No HomeDock, use **Recarregar dispositivos**.
+4. No HomeDock, use **Gerenciar grupos e lâmpadas → Procurar lâmpadas novas**.
 
 ### Adicionar ou resetar dispositivos
 
-Não existe descoberta automática de dispositivos novos — o processo é manual:
+O HomeDock não consegue cadastrar sozinho um dispositivo novo (a chave dele só vem do
+wizard) — o processo é manual:
 
 1. Pareie o dispositivo no app do celular.
 2. Rode o wizard de novo e copie o novo `devices.json` para `%APPDATA%\HomeDock\`.
-3. Use **Recarregar dispositivos** no HomeDock.
+3. Use **Procurar lâmpadas novas** no HomeDock. Se ele achar na rede um dispositivo Tuya
+   que não está no `devices.json`, avisa para rodar o wizard de novo.
 
 Resetar ou parear de novo um dispositivo **troca a chave dele** e exige o mesmo processo.
 
 ### IPs vazios e IP fixo
 
 Se o wizard rodar fora da rede de casa, os IPs no `devices.json` ficam vazios. Em casa,
-complete-os com o `tinytuya scan` (detalhes em [docs/configuracao.md](docs/configuracao.md)).
+use **Procurar lâmpadas novas**: o HomeDock procura as lâmpadas na rede e completa (ou
+atualiza) os IPs sozinho (detalhes em [docs/configuracao.md](docs/configuracao.md)).
 
 **Recomendação:** reserve um IP fixo (reserva DHCP) para cada lâmpada no seu roteador.
 Assim o IP não muda e o HomeDock não precisa redescobri-las.
@@ -77,8 +80,18 @@ vir, procure na seta **^** ao lado do relógio). Abrir o app de novo não cria u
   ao clicar fora dele ou com **Esc**. No topo, escolha **o que controlar**: "Todas as
   lâmpadas", um dos seus grupos ou uma lâmpada (com o status online/offline e os grupos
   de cada uma). O botão redondo ao lado liga/desliga **só o que está selecionado**; o
-  HomeDock lembra a última escolha. **Gerenciar grupos e lâmpadas** ainda está em
-  construção.
+  HomeDock lembra a última escolha.
+- **Gerenciar grupos e lâmpadas** (no fim da lista do topo): mostra seus grupos (cômodos)
+  com as lâmpadas de cada um e todas as lâmpadas, com o status (verde = respondendo).
+  **+ Novo grupo** ou um clique num grupo abre **Editar grupo**: nome, lâmpadas do grupo
+  (uma lâmpada pode estar em vários grupos; "também em …" mostra os outros), **Excluir
+  grupo** (com **Desfazer** por alguns segundos) e **Salvar**; voltar sem salvar descarta
+  as mudanças. "Todas as lâmpadas" é automático e sempre inclui todas. O lápis ao lado de
+  uma lâmpada a renomeia (Enter salva, Esc cancela): o nome fica só no `config.json` do
+  HomeDock — o `devices.json` não muda — e voltar ao nome original do app tira o apelido.
+  **Procurar lâmpadas novas** lê o `devices.json` de novo e procura as lâmpadas na rede
+  (leva uns 20 segundos, sem travar o painel) para completar ou atualizar os IPs; avisa se
+  houver na rede um dispositivo Tuya que não está no `devices.json`.
 - **Branco | Cor:** no modo **Branco**, arraste o marcador no arco para escolher de branco
   quente (esquerda) a frio (direita); no modo **Cor**, escolha a cor no anel e ajuste a
   **Saturação**. O **Brilho** vale para os dois modos. As lâmpadas mudam enquanto você

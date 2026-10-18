@@ -214,7 +214,8 @@ refresh IPs, and warns when a Tuya device on the LAN is missing from `devices.js
 
 Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py`,
 `icons.py`, `flyout.py`, `placement.py`, `target_model.py`, `selector.py`, `panels.py`,
-`theme.py`, `widgets.py`, `dial_math.py`, `dials.py`, `strings.py`. The UI may import `core`, `storage`,
+`bulb_panel.py`, `controls.py`, `theme.py`, `widgets.py`, `dial_math.py`, `dials.py`,
+`strings.py`. The UI may import `core`, `storage`,
 `masking` and the public `homedock.devices` API only (guarded by a test).
 
 - **Start-up** — `homedock` (`__main__` → `ui.app.run()`): takes the single-instance lock
@@ -280,11 +281,33 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
   main page asks `create(PanelContext(service, bridge, target))` on every target change
   and every opening (the members may have changed).
   A target whose members are all of one registered type gets that type's panel; mixed
-  groups, empty targets and types without a panel get the power button only. The
-  registry is empty until the bulb panel issue (#10) registers `RgbBulbPanel`: tabs
-  Branco | Cor; white = CCT arc (~270°, open at the bottom, warm left → cold right);
-  colour = hue ring (360°) with a centre preview + hex; brightness slider (both modes);
-  saturation slider (colour only).
+  groups, empty targets and types without a panel get the power button only.
+  `default_panels()` registers every panel (so far `RgbBulbPanel` for `RGB_BULB`).
+- **RGB bulb panel** (`bulb_panel.py`) — `RgbBulbPanel`: the Branco | Cor switch, then
+  the temperature arc (white) or the hue ring (colour), the **Brilho** slider (both modes)
+  and the **Saturação** slider right below it (colour only; hidden in white mode but
+  keeping its room, so the flyout does not jump between modes).
+  - Each control sends only its own capability to the target: a tab click
+    `work_mode`, the arc `color_temperature`, the ring and the saturation slider
+    `color_hsv` (hue + the shown saturation), the brightness slider `brightness`. The
+    driver turns them into the bulb's commands (the same brightness value becomes the
+    white brightness or the colour's V, by the bulb's mode; a colour or temperature change
+    also switches the mode). In a group each member gets the command in its own mode.
+  - Every drag step is sent at once; the control service's lanes keep only the latest
+    pending value per device and space the writes (`THROTTLE_INTERVAL`), so a continuous
+    drag never floods the bulbs.
+  - It shows the state of the **first online member** of the target (else the first one
+    with a known state), live from the bridge events. While a command of the panel runs,
+    its controls keep what the user set (answers to earlier drag steps would move them
+    back); afterwards they show the cached state again, so a failure reverts them. An
+    answer arriving after the panel was replaced is ignored.
+  - Controls whose capability no member supports are disabled (e.g. the arc of a bulb
+    without colour temperature).
+- **Controls** (`controls.py`) — generic Windows 11 widgets: `Slider` (a press anywhere
+  jumps there and starts a drag; arrows, Page Up/Down, Home/End; `moved` / `released`
+  and `set_value()` like the dials, also ending a drag when hidden or disabled),
+  `SliderRow` (title + value in percent) and `SegmentedControl` (exclusive options;
+  `chosen` only for the user's picks).
 - **Scenes in the flyout** (issue #11) — scenes grid (3 columns, scroll) with
   "+ Salvar atual"; right-click on a scene → Renomear / Sobrescrever / Excluir.
 - **Manage pages** (issue #12) — Gerenciar grupos e lâmpadas → Editar grupo (name,

@@ -16,8 +16,9 @@ Na v1 o foco são as **lâmpadas RGB Wi-Fi da Positivo Casa Inteligente** (Tuya 
 - opção de iniciar com o Windows.
 
 > **Status:** em desenvolvimento. O ícone na bandeja, o menu e o painel (flyout) com o
-> seletor de alvo já funcionam; os controles de cor, brilho e cenas no painel ainda não —
-> acompanhe as [issues](https://github.com/LeandroGOLiv/home-dock/issues) e milestones.
+> seletor de alvo e os controles de modo, cor e brilho já funcionam; as cenas no painel
+> ainda não — acompanhe as [issues](https://github.com/LeandroGOLiv/home-dock/issues) e
+> milestones.
 
 ## Requisitos
 
@@ -78,6 +79,11 @@ vir, procure na seta **^** ao lado do relógio). Abrir o app de novo não cria u
   de cada uma). O botão redondo ao lado liga/desliga **só o que está selecionado**; o
   HomeDock lembra a última escolha. **Gerenciar grupos e lâmpadas** ainda está em
   construção.
+- **Branco | Cor:** no modo **Branco**, arraste o marcador no arco para escolher de branco
+  quente (esquerda) a frio (direita); no modo **Cor**, escolha a cor no anel e ajuste a
+  **Saturação**. O **Brilho** vale para os dois modos. As lâmpadas mudam enquanto você
+  arrasta. Num grupo, o painel mostra o estado da primeira lâmpada online e os comandos
+  vão para todas as lâmpadas do grupo.
 - **Clique direito:** menu com **Abrir painel**, **Ligar todos**, **Desligar todos**, uma
   opção por lâmpada (marcada = acesa; "offline" quando ela não responde), **Cenas** (aplica
   uma cena salva), **Iniciar com o Windows** e **Sair**. Por enquanto, **Iniciar com o

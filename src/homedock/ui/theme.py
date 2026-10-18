@@ -6,7 +6,7 @@ Widgets read them from here only. The colours that depend on the theme live in a
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from PySide6.QtGui import QColor, QFont
 
@@ -34,6 +34,11 @@ class Colors:
     slider_thumb_fill: QColor
     slider_thumb_border: QColor
     focus: QColor  # the ring of a control reached with the keyboard
+    dial_outline: QColor  # around the band of the dials, where it would melt into the window
+
+    def with_accent(self, accent: QColor) -> Colors:
+        """These colours with ``accent``, and text over it in black or white."""
+        return replace(self, accent=accent, on_accent=text_on(accent))
 
 
 DARK = Colors(
@@ -54,6 +59,29 @@ DARK = Colors(
     slider_thumb_fill=QColor("#454545"),
     slider_thumb_border=QColor("#5A5A5A"),
     focus=QColor("#FFFFFF"),
+    dial_outline=QColor(0, 0, 0, 0),
+)
+
+# No mockup: the light colours of the Windows 11 flyouts, checked for contrast in the tests.
+LIGHT = Colors(
+    window=QColor("#F3F3F3"),
+    window_border=QColor("#C8C8C8"),
+    surface=QColor("#FBFBFB"),
+    surface_border=QColor("#E5E5E5"),
+    hover=QColor("#EAEAEA"),
+    selected=QColor("#E0E0E0"),
+    text=QColor("#1A1A1A"),
+    text_secondary=QColor("#5C5C5C"),
+    accent=QColor("#0067C0"),
+    on_accent=QColor("#FFFFFF"),
+    device_off=QColor("#8A8A8A"),
+    device_online=QColor("#0F7B0F"),
+    danger=QColor("#C42B1C"),
+    slider_rail=QColor("#8A8A8A"),
+    slider_thumb_fill=QColor("#FFFFFF"),
+    slider_thumb_border=QColor("#C8C8C8"),
+    focus=QColor("#1A1A1A"),
+    dial_outline=QColor(0, 0, 0, 40),
 )
 
 colors = DARK
@@ -63,6 +91,26 @@ def use(palette: Colors) -> None:
     """Make ``palette`` the current colours (the widgets still need restyling)."""
     global colors
     colors = palette
+
+
+def contrast_ratio(first: QColor, second: QColor) -> float:
+    """The WCAG contrast ratio of two colours, from 1 (same) to 21 (black on white)."""
+    lighter, darker = sorted((_luminance(first), _luminance(second)), reverse=True)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def text_on(background: QColor) -> QColor:
+    """Black or white, whichever reads better on ``background``."""
+    black, white = QColor("#000000"), QColor("#FFFFFF")
+    return max((white, black), key=lambda text: contrast_ratio(text, background))
+
+
+def _luminance(color: QColor) -> float:
+    def linear(channel: float) -> float:
+        return channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
+
+    red, green, blue = (linear(c) for c in (color.redF(), color.greenF(), color.blueF()))
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
 
 
 # Colours shared by every theme

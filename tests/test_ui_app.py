@@ -444,6 +444,48 @@ def test_an_automatic_scan_finding_the_same_ips_keeps_the_devices(qtbot, tmp_pat
     assert service.devices == old  # the healthy devices keep their connections
 
 
+def test_an_automatic_scan_starting_after_quitting_changes_nothing(qtbot, tmp_path):
+    data = devices_file_with_ip(tmp_path, "192.0.2.10")
+    found = [FoundDevice(EXAMPLE_ENTRY["id"], "192.0.2.50", "3.4")]
+    executor, timers, background = ManualExecutor(), FakeTimers(), Background()
+    service = ControlService([unplugged()], executor=executor, throttle=0)
+    home = HomeDock(data, service, scan=lambda: found, in_background=background, schedule=timers)
+    home.show()
+    settle(executor)
+    fail_until_scan(executor, timers)
+    [work] = background.works
+
+    home.close()
+    result = work()  # the thread got its turn only now
+
+    assert result is None
+    assert json.loads(data.paths.devices_file.read_text(encoding="utf-8"))[0]["ip"] == "192.0.2.10"
+
+
+class SpyLock:
+    """A lock telling when an attempt to take it without waiting failed."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.refused = threading.Event()
+
+    def acquire(self, blocking: bool = True) -> bool:
+        taken = self._lock.acquire(blocking)
+        if not taken:
+            self.refused.set()
+        return taken
+
+    def release(self) -> None:
+        self._lock.release()
+
+    def __enter__(self):
+        self._lock.acquire()
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self._lock.release()
+
+
 def test_an_automatic_scan_waits_for_a_reload_already_running(qtbot, tmp_path):
     data = devices_file_with_ip(tmp_path, "192.0.2.10")
     scanning, release = threading.Event(), threading.Event()
@@ -464,6 +506,7 @@ def test_an_automatic_scan_waits_for_a_reload_already_running(qtbot, tmp_path):
     executor, timers = ManualExecutor(), FakeTimers()
     service = ControlService([unplugged()], executor=executor, throttle=0)
     home = HomeDock(data, service, scan=scan, in_background=in_background, schedule=timers)
+    lock = home._reload_lock = SpyLock()
     home.flyout.open()  # reads every device: the bulb does not answer
     settle(executor)
     home.flyout.main.manage_requested.emit()
@@ -471,6 +514,7 @@ def test_an_automatic_scan_waits_for_a_reload_already_running(qtbot, tmp_path):
     assert scanning.wait(timeout=5)
 
     fail_until_scan(executor, timers)
+    assert lock.refused.wait(timeout=5)  # the automatic one found the manual one running
     release.set()
     manual, automatic = started
     manual.result(timeout=5)

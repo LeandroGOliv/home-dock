@@ -63,6 +63,7 @@ class HomeDock:
         self._scan = scan
         self._in_background = in_background or run_in_thread
         self._reload_lock = threading.Lock()  # one scan at a time: they share the UDP ports
+        self._closed = False
         self.recovery = Recovery(self.service, self._rediscover, schedule=schedule)
         self.recovery.start()
         self.flyout = Flyout(
@@ -90,6 +91,7 @@ class HomeDock:
         self.tray.show()
 
     def close(self) -> None:
+        self._closed = True
         self.recovery.stop()
         self.tray.close()
         self.flyout.shutdown()
@@ -129,15 +131,18 @@ class HomeDock:
     def _recover(self) -> DeviceReload | None:
         """The reload asked by the recovery when devices keep failing (blocks).
 
-        A reload already running scans too: wait for it instead (``None``). The devices are
-        replaced only when an IP changed, so the healthy ones keep their connections.
+        A reload already running scans too: wait for it instead (``None``), as after quitting.
+        The devices are replaced only when an IP changed: a scan finding the same IPs (a bulb
+        left unplugged) leaves the connections of the healthy ones alone.
         """
+        if self._closed:
+            return None
         if not self._reload_lock.acquire(blocking=False):
             with self._reload_lock:
                 return None
         try:
             result = self.data.reload_devices(self._scan)
-            if result.devices.problem is None and result.updated_ips:
+            if result.devices.problem is None and result.updated_ips and not self._closed:
                 log.info("%d device IP(s) changed: controlling them there", result.updated_ips)
                 self.service.replace_devices(result.devices.catalog.devices)
             return result

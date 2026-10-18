@@ -44,6 +44,10 @@ NEUTRAL = "Neutro"
 COLD = "Frio"
 
 
+def percent(value: int) -> str:
+    return f"{value}%"
+
+
 def temperature_label(temperature: int) -> str:
     """The kind of white of a colour temperature (0 = warmest, 100 = coldest)."""
     if temperature <= 33:

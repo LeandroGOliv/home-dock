@@ -23,6 +23,10 @@ DEVICE_ON = QColor("#FF9F1C")  # dot of a device that is on
 DEVICE_OFF = QColor("#6B6B6B")  # ring of a device that is off or offline
 MARKER_BORDER = QColor("#FFFFFF")  # ring of the hue / temperature marker
 MARKER_SHADOW = QColor(0, 0, 0, 110)  # keeps the marker visible on the light whites
+SLIDER_RAIL = QColor("#9E9E9E")  # the part of a slider's track after the thumb
+SLIDER_THUMB_FILL = QColor("#454545")
+SLIDER_THUMB_BORDER = QColor("#5A5A5A")
+DISABLED_OPACITY = 0.4
 # The temperature arc, warm → neutral → cold (evenly spaced); also the tint of its preview
 TEMPERATURE_COLORS = (QColor("#FFA957"), QColor("#FFF1E0"), QColor("#C9DAFF"))
 
@@ -51,6 +55,13 @@ DIAL_MARKER_BORDER = 3
 DIAL_PREVIEW = 56  # the colour preview in the middle
 DIAL_PREVIEW_OFFSET = 13  # preview centre above the dial centre
 DIAL_LABEL_OFFSET = 34  # hex code / label centre below the dial centre
+TABS_HEIGHT = 44  # the Branco | Cor switch
+TABS_INSET = 4  # gap between the switch's border and the selected option
+SLIDER_HEIGHT = 24  # the area that takes clicks
+SLIDER_TRACK = 4
+SLIDER_THUMB = 20
+SLIDER_THUMB_DOT = 12  # the accent dot in the thumb; a bit bigger while hovered
+PANEL_GAP = 18  # between the switch, the dial and the sliders
 
 # Fonts (pixel sizes)
 FAMILIES = ["Segoe UI Variable Text", "Segoe UI"]

@@ -90,10 +90,10 @@ vir, procure na seta **^** ao lado do relógio). Abrir o app de novo não cria u
   direito numa cena (ou a tecla de menu): **Renomear**, **Sobrescrever com o estado
   atual** (troca a cena pelo estado atual do que está selecionado) ou **Excluir** —
   depois de excluir, **Desfazer** aparece por alguns segundos (e não some enquanto o
-  mouse estiver em cima).
-  Aparece uma linha por vez; role com a roda do mouse para ver as outras. Lâmpadas offline
-  ficam de fora ao aplicar ou salvar, e um aviso discreto diz quantas. As cenas ficam
-  salvas no `config.json` e o submenu **Cenas** da bandeja mostra a mesma lista.
+  mouse estiver em cima). Aparecem três cenas por vez, lado a lado; as outras rolam para
+  o lado (roda do mouse ou a barrinha embaixo). Lâmpadas offline ficam de fora ao aplicar
+  ou salvar, e um aviso discreto diz quantas. As cenas ficam salvas no `config.json` e o
+  submenu **Cenas** da bandeja mostra a mesma lista.
 - **Clique direito:** menu com **Abrir painel**, **Ligar todos**, **Desligar todos**, uma
   opção por lâmpada (marcada = acesa; "offline" quando ela não responde), **Cenas** (aplica
   uma cena salva), **Iniciar com o Windows** e **Sair**. Ao ligar/desligar uma lâmpada ou

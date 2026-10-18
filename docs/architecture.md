@@ -328,9 +328,12 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
   the target list is open, shown for every target, also mixed groups). Generic: it only
   calls `apply_scene()` / `capture()` and edits a `SceneBook`; the tray menu reads the
   same `config.scenes`, so both show the same list.
-  - Header "Cenas" + "+ Salvar atual", then the grid: 3 equal columns, **one row visible**
-    (the rest scrolls a whole row per wheel notch; a button reached with Tab scrolls to its
-    row), "Nenhuma cena salva" when empty. A click applies the scene.
+  - Header "Cenas" + "+ Salvar atual", then `SceneStrip`: the scenes in **one row, three
+    in view** (each a third of the width; the rounding goes to the gaps, so the third ends
+    on the panel's edge). More scroll **sideways**: a thin bar shows below the row only
+    then, the wheel (vertical or sideways) moves one scene per notch, releasing the bar
+    snaps to a scene, and a button reached with Tab scrolls just enough to be whole.
+    "Nenhuma cena salva" when empty. A click applies the scene.
   - Names are typed in an **inline field** that takes the header's place (same height):
     a dialog would take the focus and close the flyout. Enter or ✓ accepts, Esc or ✕
     cancels (Esc there, also on ✓/✕, does not close the flyout; the field has no Qt
@@ -343,16 +346,16 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
     current state of the **selected target's** devices that answered, like "Salvar atual";
     nothing changes when none answers. Saving and overwriting are disabled for a target
     without devices. Deleting a focused scene moves the focus to its neighbour.
-  - A discreet **notice** above the grid (so the grid stays under the pointer while the
+  - A discreet **notice** above the scenes (so they stay under the pointer while the
     flyout grows upwards) hides after 6 s, but not while the pointer is on it (the flyout
     would shrink under the pointer reaching for the action): offline devices left out when
     applying or saving ("Filme · 1 lâmpada offline ficou de fora"), nothing saved when no
     device answered, a failed save, and "“X” excluída" with **Desfazer**, which puts the
     scene back at its position (`SceneBook.restore`). Devices removed since a scene was
     saved are skipped silently.
-  - Every change is persisted at once through `save_scenes` (`AppData.save`); the grid
+  - Every change is persisted at once through `save_scenes` (`AppData.save`); the row
     then shows what is saved, so a failed save (`OSError`) leaves the old list. Opening the
-    flyout re-reads the scenes, shows the first row, closes the name field and hides the
+    flyout re-reads the scenes, scrolls back to the first ones, closes the name field and hides the
     notice.
 - **Manage pages** (issue #12) — Gerenciar grupos e lâmpadas → Editar grupo (name,
   members, delete).

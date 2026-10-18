@@ -1,11 +1,14 @@
 """Discovery of Tuya devices on the LAN, from the UDP broadcasts they send (tinytuya scanner).
 
-The scan only listens: it never connects to a device (they accept one TCP client at a time,
-and the control service may hold that connection).
+The scan never connects to a device (they accept one TCP client at a time, and the control
+service may hold that connection): it listens for their broadcasts, and tinytuya sends its
+own discovery request now and then. The IPs come from unauthenticated broadcasts, so only
+valid IPv4 addresses are kept.
 """
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -53,7 +56,15 @@ def scan_lan(scan_time: float = SCAN_TIME, scanner: Scanner | None = None) -> li
         raise DeviceError(f"network scan failed ({type(exc).__name__})") from None
     found = []
     for device_id, info in (reply or {}).items():
-        if not isinstance(info, dict) or not device_id or not info.get("ip"):
+        if not isinstance(info, dict) or not device_id or not _is_ipv4(info.get("ip")):
             continue
         found.append(FoundDevice(str(device_id), str(info["ip"]), str(info.get("version") or "")))
     return found
+
+
+def _is_ipv4(value: object) -> bool:
+    try:
+        ipaddress.IPv4Address(str(value))
+    except ValueError:
+        return False
+    return True

@@ -50,6 +50,12 @@ def test_entries_without_an_ip_are_skipped():
     assert scan_lan(scanner=FakeScanner(reply)) == []
 
 
+@pytest.mark.parametrize("ip", ["192.0.2.300", "evil.example", "192.0.2.1:6668", None, 42])
+def test_entries_with_an_invalid_ip_are_skipped(ip):
+    # The IPs come from unauthenticated broadcasts: they end up in devices.json.
+    assert scan_lan(scanner=FakeScanner({"fakedevice00000004": {"ip": ip}})) == []
+
+
 def test_no_reply_means_no_devices():
     assert scan_lan(scanner=FakeScanner(None)) == []
 

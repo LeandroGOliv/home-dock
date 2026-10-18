@@ -97,8 +97,10 @@ transport), `rgb_bulb.py` (bulb driver, the only place with bulb DPS), `registry
   `invalid_entry` / `unknown_type`), never an exception.
 - **LAN discovery** — `scan_lan(scan_time=18)` returns a `FoundDevice(id, ip, version)`
   per Tuya device whose UDP broadcast arrived in time (ports 6666/6667/7000, tinytuya's
-  scanner). It only **listens**: `poll=False`, never a TCP connection (the bulbs accept one
-  client, which the control service may hold). tinytuya loads a `devices.json` from the
+  scanner). It **never connects** to a device (`poll=False`, no TCP connection: the bulbs
+  accept one client, which the control service may hold); it listens, and tinytuya sends
+  its discovery request now and then. Only valid IPv4 addresses are kept (the broadcasts
+  are unauthenticated and the IPs go into `devices.json`). tinytuya loads a `devices.json` from the
   working directory when given no devices, so it gets a placeholder list. A scan that
   cannot run (e.g. a port taken) raises `DeviceError` without the library message; the
   `FoundDevice` repr hides the ID and IP. Blocks: callers run it off the UI thread.

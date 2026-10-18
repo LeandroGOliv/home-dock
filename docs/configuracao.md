@@ -81,9 +81,9 @@ O wizard cria na pasta `tuya-wizard` os arquivos `devices.json`, `tinytuya.json`
 2. No HomeDock, abra **Gerenciar grupos e lâmpadas → Procurar lâmpadas novas**. O
    HomeDock lê o `devices.json` de novo e procura as lâmpadas na rede (uns 20 segundos)
    para completar ou atualizar os IPs. Na primeira vez, se o Windows perguntar sobre o
-   firewall, permita o HomeDock (ou o Python) em **redes privadas**: a procura escuta os
-   avisos que as lâmpadas mandam na rede (portas UDP 6666, 6667 e 7000) e nunca se conecta
-   a elas.
+   firewall, permita o HomeDock (ou o Python) em **redes privadas**: a procura usa as
+   portas UDP 6666, 6667 e 7000 para ouvir os avisos que as lâmpadas mandam na rede e
+   nunca se conecta a elas.
 
 ## Testar a conexão (opcional)
 

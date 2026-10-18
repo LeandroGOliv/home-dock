@@ -70,7 +70,8 @@ def restyle_all() -> None:
 
 
 class Label(QLabel):
-    """A label in the theme's text colour, or its secondary one."""
+    """A label in the theme's text colour, or its secondary one. The colour is a style
+    sheet: a palette would be reset when an ancestor's style sheet changes."""
 
     def __init__(self, text: str, font: QFont, *, secondary: bool = False) -> None:
         super().__init__(text)
@@ -79,10 +80,8 @@ class Label(QLabel):
         self.apply_theme()
 
     def apply_theme(self) -> None:
-        palette = self.palette()
         color = theme.colors.text_secondary if self._secondary else theme.colors.text
-        palette.setColor(self.foregroundRole(), color)
-        self.setPalette(palette)
+        self.setStyleSheet(f"color: {color.name()};")
 
 
 def label(text: str, font: QFont, *, secondary: bool = False) -> Label:

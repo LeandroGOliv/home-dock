@@ -139,6 +139,7 @@ def test_a_new_windows_theme_restyles_the_widgets(follow, qtbot):
         windows_changed_theme()
 
     assert theme.colors == theme.LIGHT.with_accent(QColor("#0055A1"))
+    title.ensurePolished()  # as when shown: the colour is a style sheet
     assert title.palette().color(title.foregroundRole()) == theme.LIGHT.text
 
 

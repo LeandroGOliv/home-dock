@@ -23,6 +23,7 @@ def use_changed(**fields: str) -> None:
 
 
 def text_color(widget) -> QColor:
+    widget.ensurePolished()  # as when shown: the colour is a style sheet
     return widget.palette().color(widget.foregroundRole())
 
 
@@ -58,11 +59,42 @@ def test_text_fields_take_the_new_colours(qtbot):
 
     use_changed(accent="#123456", surface="#654321", text_secondary="#202020")
 
+    field.show()
+    editor.show()
     for line_edit in (field, editor.field):
+        line_edit.ensurePolished()
         assert "#123456" in line_edit.styleSheet()
         assert "#654321" in line_edit.styleSheet()
         placeholder = line_edit.palette().color(QPalette.ColorRole.PlaceholderText)
         assert placeholder.name() == "#202020"
+
+
+@pytest.mark.parametrize("placement", ["scroll body", "target list"])
+def test_labels_inside_styled_scroll_areas_take_the_new_colours(qtbot, placement):
+    """A scroll area restyled after its labels must not bring their old colour back."""
+    caption = label("Lâmpadas", theme.font(), secondary=True)
+    if placement == "scroll body":
+        parent = ScrollBody()
+        parent.rows.addWidget(caption)
+    else:
+        parent = TargetList()
+        parent.findChild(QScrollArea).widget().layout().addWidget(caption)
+    qtbot.addWidget(parent)
+    parent.show()
+
+    for color in ("#202020", "#303030", "#404040"):  # whatever order the widgets come in
+        use_changed(text_secondary=color)
+        caption.ensurePolished()
+        assert text_color(caption).name() == color
+
+
+def test_a_shown_field_keeps_the_secondary_placeholder_colour(qtbot):
+    field = TextField()
+    qtbot.addWidget(field)
+    field.show()
+    field.ensurePolished()
+    placeholder = field.palette().color(QPalette.ColorRole.PlaceholderText)
+    assert placeholder == theme.colors.text_secondary
 
 
 def test_scroll_bars_take_the_new_colours(qtbot):

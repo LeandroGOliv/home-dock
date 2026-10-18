@@ -20,7 +20,6 @@ from PySide6.QtGui import (
     QMouseEvent,
     QPainter,
     QPaintEvent,
-    QPalette,
     QPen,
 )
 from PySide6.QtWidgets import (
@@ -423,12 +422,10 @@ QLineEdit {{
     padding: 0 {theme.FIELD_PADDING}px;
     selection-background-color: {colors.accent.name()};
     selection-color: {colors.on_accent.name()};
+    placeholder-text-color: {colors.text_secondary.name()};
 }}
 QLineEdit:focus {{ border-bottom: 2px solid {colors.accent.name()}; }}
 """)
-        palette = self.palette()
-        palette.setColor(QPalette.ColorRole.PlaceholderText, colors.text_secondary)
-        self.setPalette(palette)
 
 
 class NameField(TextField):

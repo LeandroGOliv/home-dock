@@ -16,16 +16,18 @@ Na v1 o foco são as **lâmpadas RGB Wi-Fi da Positivo Casa Inteligente** (Tuya 
 - opção de iniciar com o Windows.
 
 > **Status:** em desenvolvimento. O ícone na bandeja, o menu e o painel (flyout) com o
-> seletor de alvo, os controles de modo, cor e brilho, as cenas e o gerenciamento de
-> grupos e lâmpadas já funcionam — acompanhe as
-> [issues](https://github.com/LeandroGOLiv/home-dock/issues) e milestones.
+> seletor de alvo, os controles de modo, cor e brilho, as cenas, o gerenciamento de
+> grupos e lâmpadas, a opção de iniciar com o Windows e o `HomeDock.exe` já funcionam —
+> acompanhe as [issues](https://github.com/LeandroGOLiv/home-dock/issues) e milestones.
 
 ## Requisitos
 
 - Windows 10 ou 11
-- Python 3.12 ou superior
 - [uv](https://docs.astral.sh/uv/) (gerenciador de projeto Python):
-  `winget install astral-sh.uv`
+  `winget install astral-sh.uv` — para rodar o wizard (uma vez), gerar o `HomeDock.exe`
+  ou rodar o HomeDock a partir do código. O `HomeDock.exe` em si **não precisa de
+  Python** instalado.
+- Python 3.12 ou superior, só para rodar a partir do código (o uv instala se faltar)
 - Lâmpadas já pareadas no app **Positivo Casa Inteligente** (ou Smart Life / Tuya Smart)
 - O PC e as lâmpadas na **mesma rede Wi-Fi**
 
@@ -77,9 +79,10 @@ Assim o IP não muda e o HomeDock não precisa redescobri-las.
 
 ## Uso
 
-Rode `uv run homedock`. O HomeDock aparece como um ícone de lâmpada na bandeja (se não o
-vir, procure na seta **^** ao lado do relógio). Abrir o app de novo não cria um segundo
-ícone.
+Abra o `HomeDock.exe` (veja [Gerar o HomeDock.exe](#gerar-o-homedockexe)) ou, a partir do
+código, rode `uv run homedock`. O HomeDock aparece como um ícone de lâmpada na bandeja (se
+não o vir, procure na seta **^** ao lado do relógio). Abrir o app de novo não cria um
+segundo ícone.
 
 - **Clique esquerdo:** abre/fecha o painel, no canto da tela ao lado da bandeja. Ele fecha
   ao clicar fora dele ou com **Esc**. No topo, escolha **o que controlar**: "Todas as
@@ -117,8 +120,12 @@ vir, procure na seta **^** ao lado do relógio). Abrir o app de novo não cria u
   uma cena salva), **Iniciar com o Windows** e **Sair**. Ao ligar/desligar uma lâmpada ou
   alternar **Iniciar com o Windows**, o menu continua aberto (com o mouse ou com Enter/
   espaço), para você mexer em várias lâmpadas seguidas; os outros itens, **Esc** ou um
-  clique fora fecham o menu. Por enquanto, **Iniciar com o Windows** só guarda a
-  preferência; o registro no Windows chega junto com o `HomeDock.exe`.
+  clique fora fecham o menu.
+- **Iniciar com o Windows:** marcado, o Windows abre o HomeDock quando você entra na sua
+  conta (sem pedir permissão de administrador). A marca mostra o que o Windows vai fazer
+  de fato: ela some se você desativar o HomeDock em **Gerenciador de Tarefas → Aplicativos
+  de inicialização** ou se mover o `HomeDock.exe` de pasta — marque de novo para o Windows
+  abrir o exe no lugar novo. Desmarcar remove o HomeDock da inicialização.
 
 O estado das lâmpadas é lido de novo toda vez que o menu ou o painel abre. Os comandos
 nunca travam o app, mesmo com uma lâmpada fora da tomada: ela aparece como *offline* (no
@@ -157,11 +164,32 @@ uv run ruff format .             # formatação
 
 ### Gerar o HomeDock.exe
 
-```powershell
-uv run pyinstaller packaging/HomeDock.spec
-```
+O `HomeDock.exe` é um arquivo único, sem janela de console, que roda em qualquer Windows
+10/11 **sem Python instalado**. Para gerá-lo:
 
-O executável fica em `dist\HomeDock.exe`. *(O spec de build é criado na issue de build.)*
+1. Na pasta do repositório, instale as dependências: `uv sync`.
+2. Gere o executável (leva um ou dois minutos):
+
+   ```powershell
+   uv run pyinstaller packaging/HomeDock.spec
+   ```
+
+3. O executável fica em `dist\HomeDock.exe` (cerca de 45 MB), com o ícone de lâmpada e a
+   versão do HomeDock nas propriedades do arquivo (clique direito → Propriedades →
+   Detalhes). As pastas `build\` e `dist\` não vão para o Git.
+4. Copie o `HomeDock.exe` para uma pasta fixa, por exemplo
+   `%LOCALAPPDATA%\Programs\HomeDock\`, e abra-o de lá. Faça isso **antes** de marcar
+   **Iniciar com o Windows**: a inicialização aponta para o lugar onde o exe está.
+5. Na primeira vez, o Firewall do Windows pode pedir permissão para o HomeDock: permita em
+   **redes privadas** (ele precisa ouvir a rede para achar as lâmpadas).
+
+O exe não leva nenhum dado seu: o `devices.json`, o `config.json` e os logs continuam em
+`%APPDATA%\HomeDock\`, e o build para com erro se algum desses arquivos fosse entrar no
+exe. Para conferir o que foi empacotado:
+`uv run pyi-archive_viewer --list --recursive dist\HomeDock.exe`.
+
+Ao abrir, o exe leva alguns segundos a mais que `uv run homedock` para mostrar o ícone
+(ele se descompacta numa pasta temporária a cada execução).
 
 ## Licença
 

@@ -209,12 +209,14 @@ the public `homedock.devices` API and never imports `storage`, `ui` or Qt.
 ## Storage
 
 Modules: `files.py` (`AppPaths`, `write_atomic`), `devices.py` (device import),
-`config.py` (`config.json`), `logs.py` (log files), `app_data.py` (start-up). Storage may
-use `core`, the public `homedock.devices` API and `masking`; tests guard that it never
-imports `ui`, Qt or a concrete driver.
+`config.py` (`config.json`), `logs.py` (log files), `app_data.py` (start-up),
+`autostart.py` (the Windows `Run` entry). Storage may use `core`, the public
+`homedock.devices` API and `masking`; tests guard that it never imports `ui`, Qt or a
+concrete driver.
 
 All files under `%APPDATA%\HomeDock\` (`AppPaths.default()`; the roaming profile folder
-when `APPDATA` is unset), never in the repo or the working directory:
+when `APPDATA` is unset), never in the repo or the working directory — the only thing
+written elsewhere is the start-with-Windows entry in the registry (below):
 
 - `devices.json` — imported tinytuya wizard output (IDs, local keys, IPs). Read-only for
   the app except IP refresh after a scan. `import_devices()` builds the devices through
@@ -227,8 +229,8 @@ when `APPDATA` is unset), never in the repo or the working directory:
   changed, keeps every other field, leaves an unreadable file alone and returns
   `IpUpdate(updated, not_imported)` — `not_imported` counts Tuya devices on the LAN that
   the file does not list. Display names never go to this file.
-- `config.json` — display names, groups, scenes, settings (start with Windows, last
-  target), as the frozen `Config` / `Settings` dataclasses:
+- `config.json` — display names, groups, scenes, settings (last target), as the frozen
+  `Config` / `Settings` dataclasses:
 
   ```json
   {
@@ -236,8 +238,7 @@ when `APPDATA` is unset), never in the repo or the working directory:
     "names": { "<device-id>": "Abajur" },
     "groups": [{ "id": "…", "name": "Sala", "members": ["<device-id>"] }],
     "scenes": [{ "id": "…", "name": "Leitura", "devices": { "<device-id>": { … } } }],
-    "settings": { "start_with_windows": false,
-                  "last_target": { "kind": "group", "key": "…" } }
+    "settings": { "last_target": { "kind": "group", "key": "…" } }
   }
   ```
 
@@ -245,6 +246,19 @@ when `APPDATA` is unset), never in the repo or the working directory:
   so a new capability brings its own encoding). Missing sections take their defaults and
   unknown keys are ignored. `MIGRATIONS[n]` upgrades a schema-n document to n + 1;
   `migrate()` applies them in order on load (a missing step is a `ConfigError`). Saving always writes the current schema.
+- **Start with Windows** — `StartWithWindows` (`autostart.py`) keeps no copy of the
+  choice: the registry is the source of truth, so the tray shows what Windows will do.
+  It is on when `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` has a `HomeDock`
+  value equal to the command of the running HomeDock (`launch_command()`: the quoted
+  path of `HomeDock.exe` when frozen, else `"<venv>\pythonw.exe" -m homedock`; compared
+  ignoring case) and Task Manager has not disabled it (`Explorer\StartupApproved\Run`,
+  odd first byte). An entry for another path (the exe was moved) counts as off.
+  Turning it on writes the value and removes Task Manager's switch; turning it off
+  removes both. Reads never raise; writes raise `OSError`. The registry access is a
+  small `Registry` protocol (`UserRegistry` over `winreg`); the test suite swaps
+  `default_registry()` for an in-memory one, so no test touches the real `Run` key.
+  Older `config.json` files with `settings.start_with_windows` still load (the key is
+  ignored).
 - **Atomic writes** — `write_atomic()` writes a temporary file in the same folder,
   fsyncs it and renames it over the target (`os.replace`); on failure the old file is
   kept and the temporary file removed.
@@ -307,11 +321,13 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
     on), labelled with the user's display name (`config.names`, else the wizard name) and
     "· offline" when its last I/O failed. "Ligar/Desligar todos" send `power` to the
     automatic group of every device type present.
-  - Opening the menu re-reads names, scenes and the setting from the config and queues a
-    `refresh` of every device; the items update live as the answers arrive. After any
-    command the items show the cached state again, so a failed toggle reverts.
-  - "Iniciar com o Windows" only saves `settings.start_with_windows` for now (the Windows
-    `Run` entry comes with the packaging issue); a failed save reverts the check mark.
+  - Opening the menu re-reads names and scenes from the config, the start-with-Windows
+    entry from the registry, and queues a `refresh` of every device; the items update
+    live as the answers arrive. After any command the items show the cached state again,
+    so a failed toggle reverts.
+  - "Iniciar com o Windows" reads and changes the `Run` entry (`StartWithWindows`, given
+    to `HomeDock`): checked when the menu opens and read back after every change, so a
+    failed write (or an entry disabled elsewhere) shows the real state.
   - `&` in names is escaped so it is not taken as a keyboard shortcut.
   - Checkable items (the device toggles, "Iniciar com o Windows") keep the menu open, by
     mouse or keyboard (Enter or space; holding the key toggles once), so several devices
@@ -522,6 +538,24 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
   angle ↔ temperature with the dead zone and the drag across it, positions on a conical gradient, HSV ↔ hex and
   colour blending. `scripts/dials_demo.py` shows both dials in a window (no device).
 - **Strings** — pt-BR, centralised in one module.
+
+## Packaging
+
+`packaging/HomeDock.spec` (PyInstaller) builds `dist\HomeDock.exe`: one file, windowed
+(`console=False`), from `src/homedock/__main__.py`.
+
+- **Icon** — the spec runs `scripts/make_icon.py`, which paints the tray bulb
+  (`icons.bulb_pixmap`) at 16–256 px and writes them as PNG entries of an `.ico` in the
+  build folder: the repo keeps no image files.
+- **Version** — the Windows version resource comes from `homedock.__version__` (a test
+  keeps it equal to `pyproject.toml`).
+- **No local data** — nothing is added as data; the spec stops the build if a bundled
+  file is named like local data (`devices.json`, `config.json`, wizard dumps, logs) or
+  comes from `%APPDATA%\HomeDock` or `%USERPROFILE%\tuya-wizard`. The exe reads and
+  writes its data under `%APPDATA%\HomeDock` like the sources do.
+- **Excluded** — `tkinter` and the build tools PyInstaller's `setuptools` hook pulls in
+  (`setuptools`, `pkg_resources`, `distutils`), unused at run time.
+- `build\` and `dist\` are git-ignored; CI does not build the exe.
 
 ## Resilience
 

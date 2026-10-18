@@ -1,4 +1,4 @@
-"""Scenes in the flyout: grid, apply, save, rename, overwrite, delete, with fake devices."""
+"""Scenes in the flyout: the row, apply, save, rename, overwrite, delete (fake devices)."""
 
 from enum import StrEnum
 
@@ -75,14 +75,14 @@ class Harness:
         self.target: Target | None = ALL_BULBS
 
     @property
-    def grid(self):
-        return self.section.grid
+    def strip(self):
+        return self.section.strip
 
     def names(self) -> list[str]:
-        return [button.text() for button in self.grid.buttons]
+        return [button.text() for button in self.strip.buttons]
 
     def button(self, name: str):
-        return next(b for b in self.grid.buttons if b.text() == name)
+        return next(b for b in self.strip.buttons if b.text() == name)
 
     def click(self, qtbot, name: str) -> None:
         qtbot.mouseClick(self.button(name), Qt.MouseButton.LeftButton)
@@ -153,76 +153,101 @@ def make_section(qtbot, executor):
         service.shutdown()
 
 
-# --- grid -------------------------------------------------------------------------------------
+# --- row of scenes ----------------------------------------------------------------------------
 
 
-def test_the_saved_scenes_show_in_a_grid_of_three_columns(make_section):
+def scenes_named(count: int) -> list[Scene]:
+    return [scene(f"s{n}", f"C{n}") for n in range(count)]
+
+
+def in_view(strip) -> list[str]:
+    """The scenes whose button is wholly in view."""
+    view = strip.viewport().rect()
+    return [
+        b.text()
+        for b in strip.buttons
+        if view.contains(b.geometry().translated(-strip.horizontalScrollBar().value(), 0))
+    ]
+
+
+def test_the_scenes_show_in_one_row_three_in_view(make_section):
     scenes = [scene(f"s{n}", f"Cena {n}") for n in range(1, 6)]
     harness = make_section(bulb("b1"), scenes=scenes)
+    strip = harness.strip
 
     assert harness.names() == [s.name for s in scenes]
-    first, second, third, fourth = (harness.grid.buttons[i] for i in range(4))
-    assert first.y() == second.y() == third.y() < fourth.y()
-    assert first.x() == fourth.x() < second.x() < third.x()
-    widths = [b.width() for b in (first, second, third)]
-    assert max(widths) - min(widths) <= 1  # the row split in three
+    buttons = strip.buttons
+    assert len({b.y() for b in buttons}) == 1
+    assert [b.x() for b in buttons] == sorted(b.x() for b in buttons)
+    assert len({b.width() for b in buttons}) == 1
+    assert in_view(strip) == ["Cena 1", "Cena 2", "Cena 3"]
+    assert buttons[2].geometry().right() + 1 == strip.width()  # the third one ends on the edge
+    assert buttons[1].x() - buttons[0].geometry().right() - 1 >= theme.SCENE_GAP
 
 
-def test_one_row_shows_and_the_others_scroll(make_section):
-    three = make_section(bulb("b1"), scenes=[scene(f"s{n}", f"C{n}") for n in range(3)])
-    four = make_section(bulb("b1"), scenes=[scene(f"s{n}", f"C{n}") for n in range(4)])
+def test_beyond_three_scenes_they_scroll_sideways(make_section):
+    three = make_section(bulb("b1"), scenes=scenes_named(3))
+    four = make_section(bulb("b1"), scenes=scenes_named(4))
 
-    for harness in (three, four):
-        assert harness.grid.height() == theme.SCENE_HEIGHT
-    assert three.grid.verticalScrollBar().maximum() == 0
-    assert four.grid.verticalScrollBar().maximum() > 0
+    assert three.strip.height() == theme.SCENE_HEIGHT
+    assert three.strip.horizontalScrollBar().maximum() == 0
+    assert four.strip.horizontalScrollBar().maximum() > 0
+    assert four.strip.height() == theme.SCENE_HEIGHT + theme.SCROLLBAR_GAP + theme.SCROLLBAR_WIDTH
+    assert four.strip.verticalScrollBar().maximum() == 0
 
 
-def test_the_wheel_scrolls_a_whole_row_per_notch(make_section):
-    harness = make_section(bulb("b1"), scenes=[scene(f"s{n}", f"C{n}") for n in range(9)])
-    grid = harness.grid
+def test_the_wheel_scrolls_a_whole_scene_per_notch(make_section):
+    harness = make_section(bulb("b1"), scenes=scenes_named(6))
+    strip = harness.strip
 
-    def wheel(delta: int) -> None:
-        centre = QPointF(grid.viewport().rect().center())
+    def wheel(dx: int, dy: int) -> None:
+        centre = QPointF(strip.viewport().rect().center())
         event = QWheelEvent(
             centre,
-            QPointF(grid.viewport().mapToGlobal(centre.toPoint())),
+            QPointF(strip.viewport().mapToGlobal(centre.toPoint())),
             QPoint(0, 0),
-            QPoint(0, delta),
+            QPoint(dx, dy),
             Qt.MouseButton.NoButton,
             Qt.KeyboardModifier.NoModifier,
             Qt.ScrollPhase.NoScrollPhase,
             False,
         )
-        QApplication.sendEvent(grid.viewport(), event)
+        QApplication.sendEvent(strip.viewport(), event)
 
-    wheel(-120)
-    assert grid.first_row() == 1
-    assert grid.verticalScrollBar().value() == theme.SCENE_HEIGHT + theme.SCENE_GAP
-    wheel(-60)  # half a notch (a touchpad) does not scroll yet...
-    assert grid.first_row() == 1
-    wheel(-60)  # ...the other half does
-    assert grid.first_row() == 2
-    wheel(240)
-    assert grid.first_row() == 0
-
-
-def test_tabbing_to_a_scene_scrolls_to_its_row(make_section, qtbot):
-    harness = make_section(bulb("b1"), scenes=[scene(f"s{n}", f"C{n}") for n in range(6)])
-    harness.grid.buttons[2].setFocus(Qt.FocusReason.TabFocusReason)
-
-    qtbot.keyClick(harness.grid.buttons[2], Qt.Key.Key_Tab)
-
-    assert harness.grid.buttons[3].hasFocus()
-    assert harness.grid.buttons[3].focus_shown()
-    assert harness.grid.first_row() == 1
+    wheel(0, -120)  # down: on to the next scene
+    assert in_view(strip) == ["C1", "C2", "C3"]
+    wheel(0, -60)  # half a notch (a touchpad) does not scroll yet...
+    assert strip.first_index() == 1
+    wheel(0, -60)  # ...the other half does
+    assert strip.first_index() == 2
+    wheel(0, -360)  # never past the last three
+    assert in_view(strip) == ["C3", "C4", "C5"]
+    wheel(120, 0)  # a sideways wheel or touchpad: left goes back
+    assert strip.first_index() == 2
+    wheel(0, 480)
+    assert strip.first_index() == 0
 
 
-def test_without_scenes_the_grid_says_so(make_section):
+def test_tabbing_to_a_scene_scrolls_just_enough_to_show_it(make_section, qtbot):
+    harness = make_section(bulb("b1"), scenes=scenes_named(6))
+    buttons = harness.strip.buttons
+    buttons[2].setFocus(Qt.FocusReason.TabFocusReason)
+
+    qtbot.keyClick(buttons[2], Qt.Key.Key_Tab)
+
+    assert buttons[3].hasFocus()
+    assert buttons[3].focus_shown()
+    assert in_view(harness.strip) == ["C1", "C2", "C3"]
+
+    buttons[0].setFocus(Qt.FocusReason.BacktabFocusReason)
+    assert in_view(harness.strip) == ["C0", "C1", "C2"]
+
+
+def test_without_scenes_the_row_says_so(make_section):
     harness = make_section(bulb("b1"))
 
-    assert harness.grid.buttons == []
-    labels = harness.grid.widget().findChildren(QLabel)
+    assert harness.strip.buttons == []
+    labels = harness.strip.widget().findChildren(QLabel)
     assert [label.text() for label in labels if label.isVisible()] == [strings.NO_SCENES]
 
 
@@ -301,14 +326,14 @@ def test_save_current_stores_the_state_of_the_target_devices(make_section, qtbot
 
 
 def test_a_new_scene_scrolls_into_view(make_section, qtbot):
-    harness = make_section(bulb("b1"), scenes=[scene(f"s{n}", f"C{n}") for n in range(6)])
+    harness = make_section(bulb("b1"), scenes=scenes_named(6))
 
     qtbot.mouseClick(harness.section.save_link, Qt.MouseButton.LeftButton)
     harness.type_name(qtbot, "Nova")
     harness.settle()
 
     assert harness.names()[-1] == "Nova"
-    assert harness.grid.first_row() == 2
+    assert in_view(harness.strip) == ["C4", "C5", "Nova"]
 
 
 def test_save_current_leaves_offline_devices_out_and_says_so(make_section, qtbot):
@@ -580,18 +605,18 @@ def test_the_focus_ring_comes_back_after_the_scene_menu(make_section):
     assert button.focus_shown()
 
 
-def test_the_grid_itself_takes_no_focus(make_section):
-    grid = make_section(bulb("b1")).grid
-    assert grid.focusPolicy() == Qt.FocusPolicy.NoFocus
+def test_the_row_itself_takes_no_focus(make_section):
+    strip = make_section(bulb("b1")).strip
+    assert strip.focusPolicy() == Qt.FocusPolicy.NoFocus
 
 
-def test_reload_shows_the_first_row_again(make_section):
-    harness = make_section(bulb("b1"), scenes=[scene(f"s{n}", f"C{n}") for n in range(6)])
-    harness.grid.show_row(1)
+def test_reload_shows_the_first_scenes_again(make_section):
+    harness = make_section(bulb("b1"), scenes=scenes_named(6))
+    harness.strip.show_from(2)
 
     harness.section.reload()
 
-    assert harness.grid.first_row() == 0
+    assert harness.strip.first_index() == 0
 
 
 def test_the_menu_is_forgotten_once_closed(make_section):

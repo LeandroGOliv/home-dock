@@ -65,13 +65,14 @@ FOCUS_WIDTH = 2
 SLIDER_THUMB_DOT = 12  # the accent dot in the thumb; a bit bigger while hovered
 PANEL_GAP = 18  # between the switch, the dial and the sliders
 SECTION_GAP = 24  # between the control panel and the scenes
-SCENE_HEIGHT = 40  # a scene button; also the visible height of the scenes grid
+SCENE_HEIGHT = 40  # a scene button
 SCENE_GAP = 8
 EDITOR_HEIGHT = 32  # the scene name field; also the scenes header
 EDITOR_GAP = 4  # between the name field and its check / cross buttons
 FIELD_PADDING = 8  # text inset of a text box
 LINK_HEIGHT = 28  # a text link such as "+ Salvar atual"
-SCROLLBAR_WIDTH = 6
+SCROLLBAR_WIDTH = 6  # thickness
+SCROLLBAR_GAP = 4  # between the scenes and their scroll bar
 
 # Fonts (pixel sizes)
 FAMILIES = ["Segoe UI Variable Text", "Segoe UI"]

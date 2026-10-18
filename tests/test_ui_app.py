@@ -288,10 +288,10 @@ def test_scenes_renamed_or_deleted_in_the_flyout_persist_and_leave_the_tray(qtbo
     home.flyout.open()
     section = home.flyout.main.scenes
 
-    section._start_rename(section.grid.scenes()[0])
+    section._start_rename(section.strip.scenes()[0])
     section.editor.field.setText("Ler")
     section.editor.save_button.click()
-    section._delete(section.grid.scenes()[1])
+    section._delete(section.strip.scenes()[1])
 
     assert tray_scenes(home) == ["Ler"]
     home.close()

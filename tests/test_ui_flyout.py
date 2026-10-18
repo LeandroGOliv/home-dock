@@ -635,7 +635,7 @@ def test_the_scenes_show_below_the_panel(home, panels):
 
     scenes = flyout.main.scenes
     assert scenes.isVisible()
-    assert [b.text() for b in scenes.grid.buttons] == ["Leitura"]
+    assert [b.text() for b in scenes.strip.buttons] == ["Leitura"]
     assert scenes.y() > flyout.main.panel.parentWidget().geometry().bottom()
 
 
@@ -700,7 +700,7 @@ def test_reopening_shows_the_latest_scenes_and_closes_the_name_field(home, qtbot
     flyout.open()
 
     assert not flyout.main.scenes.editing()
-    assert [b.text() for b in flyout.main.scenes.grid.buttons] == ["Filme"]
+    assert [b.text() for b in flyout.main.scenes.strip.buttons] == ["Filme"]
 
 
 def test_a_notice_grows_the_flyout_upwards_and_keeps_the_scenes_in_place(home, executor, qtbot):
@@ -708,17 +708,17 @@ def test_a_notice_grows_the_flyout_upwards_and_keeps_the_scenes_in_place(home, e
     flyout, (b1, *_) = home(scenes=FakeStore(offline))
     b1.online = False
     flyout.open()
-    grid = flyout.main.scenes.grid
-    before, grid_before = flyout.frameGeometry(), grid.mapToGlobal(grid.rect().topLeft())
+    strip = flyout.main.scenes.strip
+    before, strip_before = flyout.frameGeometry(), strip.mapToGlobal(strip.rect().topLeft())
 
-    qtbot.mouseClick(grid.buttons[0], Qt.MouseButton.LeftButton)
+    qtbot.mouseClick(strip.buttons[0], Qt.MouseButton.LeftButton)
     settle(executor)
 
     assert not flyout.main.scenes.notice.isHidden()
     after = flyout.frameGeometry()
     assert after.height() > before.height()
     assert after.bottom() == before.bottom()
-    assert grid.mapToGlobal(grid.rect().topLeft()) == grid_before
+    assert strip.mapToGlobal(strip.rect().topLeft()) == strip_before
 
 
 # --- responsiveness ---------------------------------------------------------------------------

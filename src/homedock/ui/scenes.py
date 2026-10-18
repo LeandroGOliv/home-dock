@@ -1,4 +1,4 @@
-"""Scenes in the flyout: a grid of scene buttons under the control panel.
+"""Scenes in the flyout: a row of scene buttons under the control panel.
 
 A click applies a scene; a right click (or the menu key) offers Renomear | Sobrescrever com o
 estado atual | Excluir. "+ Salvar atual" saves the state of the selected target's devices.
@@ -25,12 +25,12 @@ from PySide6.QtGui import (
     QPaintEvent,
     QPalette,
     QPen,
+    QResizeEvent,
     QWheelEvent,
 )
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLineEdit,
     QMenu,
@@ -50,7 +50,7 @@ from homedock.ui.widgets import PaintedButton, draw_text, label
 
 log = logging.getLogger(__name__)
 
-COLUMNS = 3
+IN_VIEW = 3  # scene buttons in view; the others scroll
 NOTICE_DURATION = 6000  # milliseconds a notice stays
 MAX_NAME = 40
 WHEEL_NOTCH = 120  # angle delta of one wheel notch
@@ -71,7 +71,7 @@ class SceneButton(PaintedButton):
         self.setText(scene.name)
         self.setToolTip(scene.name)  # the name may be elided
         self.setFixedHeight(theme.SCENE_HEIGHT)
-        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)  # width: the strip
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._focus_shown = False
 
@@ -119,8 +119,9 @@ class SceneButton(PaintedButton):
         painter.end()
 
 
-class SceneGrid(QScrollArea):
-    """Scene buttons in rows of three. One row shows; the others scroll, a row at a time."""
+class SceneStrip(QScrollArea):
+    """Scene buttons in one row, three in view; the others scroll sideways, a scene at a
+    time. The scroll bar shows below the row only when there are more than three."""
 
     applied = Signal(object)  # Scene
     menu_requested = Signal(object, QPoint)  # Scene, global position
@@ -128,25 +129,20 @@ class SceneGrid(QScrollArea):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.buttons: list[SceneButton] = []
-        self._wheel = 0  # wheel movement not yet turned into a row
+        self._wheel = 0  # wheel movement not yet turned into a scene
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # the buttons take the focus
         content = QWidget()
-        self._grid = QGridLayout(content)
-        self._grid.setContentsMargins(0, 0, 0, 0)
-        self._grid.setSpacing(theme.SCENE_GAP)
-        for column in range(COLUMNS):
-            self._grid.setColumnStretch(column, 1)
+        self._row = QHBoxLayout(content)
+        self._row.setContentsMargins(0, 0, 0, 0)
+        self._row.setSpacing(theme.SCENE_GAP)
         self.setWidget(content)
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.Shape.NoFrame)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setStyleSheet(_SCROLL_STYLE)
         self.viewport().setAutoFillBackground(False)
-        self.setFixedHeight(theme.SCENE_HEIGHT)
-        bar = self.verticalScrollBar()
-        bar.setSingleStep(_ROW_STEP)
-        bar.setPageStep(_ROW_STEP)
-        bar.sliderReleased.connect(self._snap)
+        self.horizontalScrollBar().sliderReleased.connect(self._snap)
         self.set_scenes([])
 
     def scenes(self) -> list[Scene]:
@@ -155,7 +151,7 @@ class SceneGrid(QScrollArea):
     def set_scenes(self, scenes: Sequence[Scene]) -> None:
         if self.buttons and self.scenes() == list(scenes):
             return  # unchanged: keep the buttons (and the focus)
-        while (item := self._grid.takeAt(0)) is not None:
+        while (item := self._row.takeAt(0)) is not None:
             if (widget := item.widget()) is not None:
                 widget.hide()  # not painted again until the deferred delete
                 widget.deleteLater()
@@ -164,49 +160,94 @@ class SceneGrid(QScrollArea):
             button = SceneButton(scene)
             button.clicked.connect(lambda _=False, s=scene: self.applied.emit(s))
             button.menu_requested.connect(lambda at, s=scene: self.menu_requested.emit(s, at))
-            button.focused.connect(partial(self.show_row, index // COLUMNS))
-            self._grid.addWidget(button, index // COLUMNS, index % COLUMNS)
+            button.focused.connect(partial(self.show_index, index))
+            self._row.addWidget(button)
             self.buttons.append(button)
         if not scenes:
             empty = label(strings.NO_SCENES, theme.font(theme.CAPTION), theme.TEXT_SECONDARY)
             empty.setFixedHeight(theme.SCENE_HEIGHT)
-            self._grid.addWidget(empty, 0, 0, 1, COLUMNS)
-        # Show and size the rows now, not on the next event loop pass, so that a new row can
-        # be scrolled to at once.
-        for item in map(self._grid.itemAt, range(self._grid.count())):
-            item.widget().setVisible(not self.widget().isHidden())
-        self._grid.activate()
-        self.widget().resize(self.viewport().width(), self.widget().sizeHint().height())
+            self._row.addWidget(empty)
+        self._row.addStretch(1)  # fewer than three: they keep their width, on the left
+        # Show and size the buttons now, not on the next event loop pass, so that a new
+        # scene can be scrolled to at once.
+        for item in map(self._row.itemAt, range(self._row.count())):
+            if (widget := item.widget()) is not None:
+                widget.setVisible(not self.widget().isHidden())
+        self._fit()
 
     def show_scene(self, scene_id: str) -> None:
-        """Scroll to the row of the scene."""
+        """Scroll just enough for the scene to be in view."""
         for index, button in enumerate(self.buttons):
             if button.scene.id == scene_id:
-                self.show_row(index // COLUMNS)
+                self.show_index(index)
 
-    def show_row(self, row: int) -> None:
-        self.verticalScrollBar().setValue(row * _ROW_STEP)
+    def show_index(self, index: int) -> None:
+        first = self.first_index()
+        if index < first:
+            self.show_from(index)
+        elif index >= first + IN_VIEW:
+            self.show_from(index - IN_VIEW + 1)
 
-    def first_row(self) -> int:
-        """The row shown."""
-        return round(self.verticalScrollBar().value() / _ROW_STEP)
+    def show_from(self, index: int) -> None:
+        """Put the scene at ``index`` on the left edge (as far as the row goes)."""
+        self.horizontalScrollBar().setValue(index * self._step())
+
+    def first_index(self) -> int:
+        """The scene on the left edge."""
+        return round(self.horizontalScrollBar().value() / self._step())
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        """A row per wheel notch; a touchpad adds its small steps up to a notch."""
-        self._wheel += event.angleDelta().y()
-        rows = int(self._wheel / WHEEL_NOTCH)  # towards zero
-        if rows:
-            self._wheel -= rows * WHEEL_NOTCH
-            self.show_row(max(self.first_row() - rows, 0))
+        """A scene per wheel notch (down or right goes on); a touchpad adds its small steps
+        up to a notch."""
+        delta = event.angleDelta()
+        self._wheel += delta.y() or delta.x()  # positive: back (up or left)
+        notches = int(self._wheel / WHEEL_NOTCH)  # towards zero
+        if notches:
+            self._wheel -= notches * WHEEL_NOTCH
+            last = max(len(self.buttons) - IN_VIEW, 0)
+            self.show_from(min(max(self.first_index() - notches, 0), last))
         event.accept()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._fit()
 
     def focusNextPrevChild(self, next: bool) -> bool:
         # QScrollArea would scroll the newly focused button into view with a margin; the
-        # button scrolls to its whole row instead (``focused``).
+        # button scrolls just enough to be whole instead (``focused``).
         return QWidget.focusNextPrevChild(self, next)
 
+    def _step(self) -> int:
+        width = _column_width(self.width())
+        return width + _gap(self.width(), width)
+
+    def _fit(self) -> None:
+        """Three buttons per width (the rounding goes to the gaps, so the third one ends on
+        the edge); room for the scroll bar only when it is needed."""
+        width = _column_width(self.width())
+        self._row.setSpacing(_gap(self.width(), width))
+        for button in self.buttons:
+            button.setFixedWidth(width)
+        overflow = len(self.buttons) > IN_VIEW
+        self.setViewportMargins(0, 0, 0, theme.SCROLLBAR_GAP if overflow else 0)
+        bar = theme.SCROLLBAR_GAP + theme.SCROLLBAR_WIDTH if overflow else 0
+        self.setFixedHeight(theme.SCENE_HEIGHT + bar)
+        self._row.activate()
+        self.widget().resize(self.widget().sizeHint().width(), theme.SCENE_HEIGHT)
+        self.horizontalScrollBar().setSingleStep(self._step())
+        self.horizontalScrollBar().setPageStep(self._step() * IN_VIEW)
+
     def _snap(self) -> None:
-        self.show_row(self.first_row())
+        self.show_from(self.first_index())
+
+
+def _column_width(width: int) -> int:
+    """A button's width: three and their gaps fill ``width``."""
+    return max((width - (IN_VIEW - 1) * theme.SCENE_GAP) // IN_VIEW, 1)
+
+
+def _gap(width: int, column: int) -> int:
+    return max((width - IN_VIEW * column) // (IN_VIEW - 1), theme.SCENE_GAP)
 
 
 class LinkButton(PaintedButton):
@@ -378,7 +419,8 @@ class Notice(QWidget):
 
 
 class ScenesSection(QWidget):
-    """ "Cenas": the header with "+ Salvar atual" (or the name field), a notice and the grid.
+    """ "Cenas": the header with "+ Salvar atual" (or the name field), a notice and the row
+    of scenes.
 
     ``target`` gives the selected target (whose devices "Salvar atual" saves); ``scenes``
     gives the saved scenes and ``save_scenes`` persists them, raising ``OSError``.
@@ -421,29 +463,29 @@ class ScenesSection(QWidget):
         self._top.setFixedHeight(theme.EDITOR_HEIGHT)
         self.notice = Notice()
         self.notice.hide()
-        self.grid = SceneGrid()
+        self.strip = SceneStrip()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(theme.SCENE_GAP)
         layout.addWidget(self._top)
-        layout.addWidget(self.notice)  # above the grid: the grid stays under the pointer
-        layout.addWidget(self.grid)
+        layout.addWidget(self.notice)  # above the scenes: they stay under the pointer
+        layout.addWidget(self.strip)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
         self.save_link.clicked.connect(self._start_new)
         self.editor.accepted.connect(self._on_name)
         self.editor.cancelled.connect(self._close_editor)
         self.notice.timer.timeout.connect(self._hide_notice)
-        self.grid.applied.connect(self.apply)
-        self.grid.menu_requested.connect(self._show_menu)
+        self.strip.applied.connect(self.apply)
+        self.strip.menu_requested.connect(self._show_menu)
 
     def reload(self) -> None:
         """Show the saved scenes, with no name being typed and no notice."""
         self._close_editor()
         self._hide_notice()
-        self.grid.set_scenes(self._scenes())
-        self.grid.show_row(0)
+        self.strip.set_scenes(self._scenes())
+        self.strip.show_from(0)
         self.update_actions()
 
     def update_actions(self) -> None:
@@ -484,15 +526,15 @@ class ScenesSection(QWidget):
         index = ids.index(scene.id) if scene.id in ids else len(ids)
         had_focus = self._button_has_focus(scene)
         if self._change(lambda book: book.delete(scene.id)):
-            if had_focus and self.grid.buttons:  # keep a keyboard user in the grid
-                self.grid.buttons[min(index, len(self.grid.buttons) - 1)].setFocus()
+            if had_focus and self.strip.buttons:  # keep a keyboard user on the scenes
+                self.strip.buttons[min(index, len(self.strip.buttons) - 1)].setFocus()
             undo = partial(self._undo_delete, scene, index)
             self._notify(strings.scene_deleted(scene.name), (strings.UNDO, undo))
 
     def _undo_delete(self, scene: Scene, index: int) -> None:
         self._hide_notice()
         if self._change(lambda book: book.restore(scene, index)):
-            self.grid.show_scene(scene.id)
+            self.strip.show_scene(scene.id)
 
     def _show_menu(self, scene: Scene, position: QPoint) -> None:
         menu = QMenu(self)
@@ -521,11 +563,11 @@ class ScenesSection(QWidget):
         self._top.setCurrentIndex(0)
         if typing:  # the focus would be lost with the hidden field
             renamed = self._renaming
-            buttons = (b for b in self.grid.buttons if renamed and b.scene.id == renamed.id)
+            buttons = (b for b in self.strip.buttons if renamed and b.scene.id == renamed.id)
             next(buttons, self.save_link).setFocus()
 
     def _button_has_focus(self, scene: Scene) -> bool:
-        return any(b.scene.id == scene.id and b.hasFocus() for b in self.grid.buttons)
+        return any(b.scene.id == scene.id and b.hasFocus() for b in self.strip.buttons)
 
     def _notify(self, text: str, action: tuple[str, Callable[[], object]] | None = None) -> None:
         self.notice.set_message(text, action)
@@ -578,7 +620,7 @@ class ScenesSection(QWidget):
     def _create(self, name: str, snapshot: dict[str, DeviceState]) -> bool:
         if not self._change(lambda book: book.create(name, snapshot)):
             return False
-        self.grid.show_scene(self.grid.scenes()[-1].id)
+        self.strip.show_scene(self.strip.scenes()[-1].id)
         return True
 
     def _replace(self, scene: Scene, snapshot: dict[str, DeviceState]) -> bool:
@@ -592,7 +634,7 @@ class ScenesSection(QWidget):
             )
 
     def _change(self, change: Callable[[SceneBook], object]) -> bool:
-        """Change the saved scenes and persist them. The grid then shows what is saved: on a
+        """Change the saved scenes and persist them. The row then shows what is saved: on a
         failure, the scenes as they were."""
         book = SceneBook(self._scenes())
         try:
@@ -606,7 +648,7 @@ class ScenesSection(QWidget):
             self._notify(strings.SAVE_FAILED)
             return False
         finally:
-            self.grid.set_scenes(self._scenes())
+            self.strip.set_scenes(self._scenes())
         return True
 
     def _noun(self, device_ids: Iterable[str]) -> strings.Noun:
@@ -624,16 +666,14 @@ def _outcome(future: Future[Any]) -> Any:
         return None
 
 
-_ROW_STEP = theme.SCENE_HEIGHT + theme.SCENE_GAP
-
 _SCROLL_STYLE = f"""
 QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; }}
-QScrollBar:vertical {{ background: transparent; width: {theme.SCROLLBAR_WIDTH}px;
-    margin: 2px 0 2px 2px; }}
-QScrollBar::handle:vertical {{ background: {theme.DEVICE_OFF.name()}; border-radius: 2px;
-    min-height: 12px; }}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none; }}
+QScrollBar:horizontal {{ background: transparent; height: {theme.SCROLLBAR_WIDTH}px;
+    margin: 0 2px; }}
+QScrollBar::handle:horizontal {{ background: {theme.DEVICE_OFF.name()}; border-radius: 3px;
+    min-width: 24px; }}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: none; }}
 """
 
 _FIELD_STYLE = f"""

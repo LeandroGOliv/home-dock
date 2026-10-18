@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import select
 import time
 from collections.abc import Callable
 from typing import Any, Protocol
@@ -17,6 +18,9 @@ DEFAULT_PROTOCOL_VERSION = "3.4"
 SUPPORTED_VERSIONS = {"3.1": 3.1, "3.3": 3.3, "3.4": 3.4, "3.5": 3.5}
 # Tuya devices drop idle connections; reopen instead of waiting for a dead socket to time out.
 IDLE_TIMEOUT = 20.0
+# Reading what the device sent unasked: the data is already there, so a short wait is plenty.
+UNREAD_TIMEOUT = 0.5
+MAX_UNREAD = 20  # messages read before a call, at most
 
 # tinytuya DEBUG logs include the local key: never call tinytuya.set_debug().
 logging.getLogger("tinytuya").setLevel(logging.INFO)
@@ -46,6 +50,11 @@ class TinyTuyaLink:
     cuts the latency of every command. After any error the socket is dropped and reopened
     on the next call, as it is after ``idle_timeout`` seconds without use. Never log the
     tinytuya device object: its repr includes the local key.
+
+    tinytuya reads one message per call and does not match it to the request, while a write
+    is answered by one status push per changed DPS: the extra pushes stay on the socket. So
+    each call first reads, in order, every message waiting there and returns their DPS under
+    its own answer; otherwise the next call would take an old message as its answer.
     """
 
     def __init__(
@@ -104,6 +113,9 @@ class TinyTuyaLink:
     def _call(self, operation: Callable[[Any], object]) -> dict[str, Any]:
         device = self._connect()
         try:
+            unread = self._read_unread(device)
+            if self._device is None:  # reading found the socket dead: open a new one
+                device = self._connect()
             response = operation(device)
         except Exception as exc:  # library boundary: tinytuya may raise anything
             self.close()
@@ -113,10 +125,43 @@ class TinyTuyaLink:
         if isinstance(response, dict) and "Err" in response:
             self.close()
             raise DeviceError(f"Err {response.get('Err')}: {response.get('Error')}")
-        if isinstance(response, dict) and isinstance(response.get("dps"), dict):
-            return {str(k): v for k, v in response["dps"].items()}
-        return {}
+        return {**unread, **_dps(response)}
+
+    def _read_unread(self, device: Any) -> dict[str, Any]:
+        """The DPS of the messages waiting on the socket, oldest first (later ones win)."""
+        unread: dict[str, Any] = {}
+        device.set_socketTimeout(UNREAD_TIMEOUT)
+        try:
+            for _ in range(MAX_UNREAD):
+                if not _has_unread(device):
+                    break
+                message = device.receive()
+                if isinstance(message, dict) and "Err" in message:
+                    self.close()  # e.g. the device closed the connection
+                    break
+                unread.update(_dps(message))
+        finally:
+            device.set_socketTimeout(self._timeout)
+        return unread
 
 
 def connect_tinytuya(spec: DeviceSpec) -> TuyaLink:
     return TinyTuyaLink(spec)
+
+
+def _dps(response: object) -> dict[str, Any]:
+    if isinstance(response, dict) and isinstance(response.get("dps"), dict):
+        return {str(k): v for k, v in response["dps"].items()}
+    return {}
+
+
+def _has_unread(device: Any) -> bool:
+    """Whether the device's socket holds data nobody read yet (never waits)."""
+    sock = getattr(device, "socket", None)
+    if sock is None:
+        return False
+    try:
+        readable, _, _ = select.select([sock], [], [], 0)
+    except (OSError, ValueError):  # closed meanwhile
+        return False
+    return bool(readable)

@@ -126,3 +126,41 @@ def paint_close(painter: QPainter, rect: QRectF, color: QColor) -> None:
     painter.drawLine(box.topLeft(), box.bottomRight())
     painter.drawLine(box.topRight(), box.bottomLeft())
     painter.restore()
+
+
+def paint_pencil(painter: QPainter, rect: QRectF, color: QColor) -> None:
+    """A pencil pointing down-left, over a short line (rename)."""
+    painter.save()
+    _stroke(painter, color)
+    w, h = rect.width(), rect.height()
+    body = [(0.16, 0.84), (0.22, 0.62), (0.64, 0.2), (0.8, 0.36), (0.38, 0.78), (0.16, 0.84)]
+    painter.drawPolyline(QPolygonF([QPointF(rect.x() + x * w, rect.y() + y * h) for x, y in body]))
+    painter.drawLine(
+        QPointF(rect.x() + 0.52 * w, rect.y() + 0.86 * h),
+        QPointF(rect.x() + 0.86 * w, rect.y() + 0.86 * h),
+    )
+    painter.restore()
+
+
+def paint_refresh(painter: QPainter, rect: QRectF, color: QColor) -> None:
+    """A circular arrow going clockwise, its head at the top (search again)."""
+    painter.save()
+    _stroke(painter, color)
+    ring = rect.adjusted(1.5, 1.5, -1.5, -1.5)
+    painter.drawArc(ring, 80 * 16, 300 * 16)  # Qt angles: 1/16°, counter-clockwise from 3h
+    radius = ring.width() / 2
+    angle = math.radians(80)
+    tip = QPointF(
+        ring.center().x() + radius * math.cos(angle), ring.center().y() - radius * math.sin(angle)
+    )
+    wing = rect.width() * 0.22
+    painter.drawPolyline(
+        QPolygonF(
+            [
+                QPointF(tip.x() - wing, tip.y() - wing),
+                tip,
+                QPointF(tip.x() - wing, tip.y() + wing),
+            ]
+        )
+    )
+    painter.restore()

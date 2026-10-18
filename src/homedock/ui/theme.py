@@ -21,6 +21,8 @@ ACCENT = QColor("#F2B544")
 ON_ACCENT = QColor("#1A1A1A")  # icons and text drawn over the accent colour
 DEVICE_ON = QColor("#FF9F1C")  # dot of a device that is on
 DEVICE_OFF = QColor("#6B6B6B")  # ring of a device that is off or offline
+DEVICE_ONLINE = QColor("#3DD68C")  # status of a reachable device (manage page)
+DANGER = QColor("#FF8A80")  # text of a destructive action ("Excluir grupo")
 MARKER_BORDER = QColor("#FFFFFF")  # ring of the hue / temperature marker
 MARKER_SHADOW = QColor(0, 0, 0, 110)  # keeps the marker visible on the light whites
 SLIDER_RAIL = QColor("#9E9E9E")  # the part of a slider's track after the thumb
@@ -73,6 +75,16 @@ FIELD_PADDING = 8  # text inset of a text box
 LINK_HEIGHT = 28  # a text link such as "+ Salvar atual"
 SCROLLBAR_WIDTH = 6  # thickness
 SCROLLBAR_GAP = 4  # between the scenes and their scroll bar
+CARD_HEIGHT = 62  # a group on the manage page
+CARD_GAP = 8
+ITEM_HEIGHT = 44  # a device row on the manage page, a member row on the group page
+ITEM_GAP = 6
+ITEM_PADDING = 12  # text inset of a card or a row
+BUTTON_HEIGHT = 40  # "Procurar lâmpadas novas", "Salvar", "Excluir grupo"
+BUTTON_GAP = 10
+FIELD_HEIGHT = 40  # the group name
+CHECKBOX = 20
+CHECKBOX_RADIUS = 4
 
 # Fonts (pixel sizes)
 FAMILIES = ["Segoe UI Variable Text", "Segoe UI"]

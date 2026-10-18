@@ -2,7 +2,7 @@
 
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 
 import pytest
 from PySide6.QtCore import QEvent, Qt
@@ -13,7 +13,8 @@ from homedock.core import ControlService, Group, GroupBook, Scene, Target
 from homedock.devices import Capability, DeviceError, DeviceState, DeviceType
 from homedock.devices.fake import FakeDevice
 from homedock.ui import strings, theme
-from homedock.ui.flyout import REOPEN_GUARD, Flyout, ManagePage, PageStack
+from homedock.ui.flyout import REOPEN_GUARD, Flyout, PageStack
+from homedock.ui.manage import ManagePage
 from homedock.ui.panels import PanelContext, PanelRegistry
 from ui_helpers import settle
 
@@ -71,6 +72,9 @@ def make_flyout(qtbot, executor):
             set_last_target=store.set,
             scenes=scenes.get,
             save_scenes=scenes.set,
+            save_names=lambda _names: None,
+            save_groups=lambda _groups: None,
+            reload_devices=Future,  # never completes: the manage pages are tested on their own
             panels=panels or PanelRegistry(),  # the panels are tested on their own
             clock=clock or FakeClock(),
         )
@@ -246,7 +250,7 @@ def test_manage_opens_its_page_and_back_returns(make_flyout, qtbot):
     assert page.isVisible()
     assert not flyout.main.isVisible()
 
-    qtbot.mouseClick(page.back_button, Qt.MouseButton.LeftButton)
+    qtbot.mouseClick(page.header.back_button, Qt.MouseButton.LeftButton)
     assert flyout.pages.current() is flyout.main
     assert flyout.main.isVisible()
 

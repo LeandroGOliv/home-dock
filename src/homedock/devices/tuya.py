@@ -18,8 +18,11 @@ DEFAULT_PROTOCOL_VERSION = "3.4"
 SUPPORTED_VERSIONS = {"3.1": 3.1, "3.3": 3.3, "3.4": 3.4, "3.5": 3.5}
 # A bulb on the LAN answers well within a second: an unplugged one should not keep a command
 # (and the device's lane) waiting long. tinytuya uses the timeout for the TCP connect and for
-# each answer, and retries a timed-out request once on a new socket.
-TIMEOUT = 3.0
+# each answer. A failed connect is not retried, so the timeout must outlast Windows' own
+# resends of a lost connection request (after 1 s and 3 s). A request timing out on an open
+# socket is retried once on a new one; more retries would add tinytuya's 5 s pause between
+# connect attempts (``set_socketRetryDelay``).
+TIMEOUT = 3.5
 RETRIES = 1
 # Tuya devices drop idle connections; reopen instead of waiting for a dead socket to time out.
 IDLE_TIMEOUT = 20.0

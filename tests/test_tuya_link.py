@@ -89,7 +89,7 @@ def test_an_unreachable_device_fails_within_a_few_seconds():
     (device,) = FakeTinyTuyaDevice.instances
     assert (device.timeout, device.retry_limit) == (tuya_module.TIMEOUT, tuya_module.RETRIES)
     # Worst case, a dead persistent socket: the request and its one retry both time out.
-    assert tuya_module.TIMEOUT * (tuya_module.RETRIES + 1) <= 6.0
+    assert tuya_module.TIMEOUT * (tuya_module.RETRIES + 1) <= 7.0
 
 
 def test_status_returns_dps_with_string_keys():

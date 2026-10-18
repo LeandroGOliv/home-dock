@@ -66,7 +66,7 @@ def make_flyout(qtbot, executor):
             names=lambda: names or {},
             last_target=store.get,
             set_last_target=store.set,
-            panels=panels,
+            panels=panels or PanelRegistry(),  # the panels are tested on their own
             clock=clock or FakeClock(),
         )
         qtbot.addWidget(flyout)

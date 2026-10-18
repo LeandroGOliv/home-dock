@@ -189,7 +189,7 @@ class Dial(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if not self.isEnabled():
-            painter.setOpacity(0.4)
+            painter.setOpacity(theme.DISABLED_OPACITY)
         self._paint_band(painter)
         self._paint_preview(painter)
         self._paint_marker(painter)

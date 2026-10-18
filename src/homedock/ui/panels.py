@@ -1,7 +1,7 @@
 """Control panels by device type: the flyout shows the panel registered for its target.
 
-A new device type brings its own panel and registers it here; the flyout never knows the
-concrete panels. The RGB bulb panel registers itself in its own issue (#10).
+A new device type brings its own panel and registers it in :func:`default_panels`; the
+flyout never knows the concrete panels.
 """
 
 from __future__ import annotations
@@ -12,7 +12,9 @@ from dataclasses import dataclass
 from PySide6.QtWidgets import QWidget
 
 from homedock.core import ControlService, Target
+from homedock.devices import DeviceType
 from homedock.ui.bridge import ServiceBridge
+from homedock.ui.bulb_panel import RgbBulbPanel
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,4 +49,6 @@ class PanelRegistry:
 
 def default_panels() -> PanelRegistry:
     """The panels of every supported device type."""
-    return PanelRegistry()
+    registry = PanelRegistry()
+    registry.register(DeviceType.RGB_BULB, RgbBulbPanel)
+    return registry

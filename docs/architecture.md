@@ -299,15 +299,19 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
   - It shows the state of the **first online member** of the target (else the first one
     with a known state), live from the bridge events. While a command of the panel runs,
     its controls keep what the user set (answers to earlier drag steps would move them
-    back); afterwards they show the cached state again, so a failure reverts them. An
-    answer arriving after the panel was replaced is ignored.
+    back); afterwards — and when a held control is released — they show the cached state
+    again, so a failure reverts them. In a group with an unreachable member this holds the
+    controls until that member times out (intended: the end state is right). An answer
+    arriving after the panel was replaced is ignored.
+  - A mode the panel does not know (the bulb is in a Tuya scene or music mode) selects no
+    tab, so either tab switches the bulb to it.
   - Controls whose capability no member supports are disabled (e.g. the arc of a bulb
     without colour temperature).
 - **Controls** (`controls.py`) — generic Windows 11 widgets: `Slider` (a press anywhere
-  jumps there and starts a drag; arrows, Page Up/Down, Home/End; `moved` / `released`
-  and `set_value()` like the dials, also ending a drag when hidden or disabled),
-  `SliderRow` (title + value in percent) and `SegmentedControl` (exclusive options;
-  `chosen` only for the user's picks).
+  jumps there and starts a drag; arrows, Page Up/Down, Home/End, with a focus ring when
+  reached with the keyboard; `moved` / `released` and `set_value()` like the dials, also
+  ending a drag when hidden or disabled), `SliderRow` (title + value in percent) and
+  `SegmentedControl` (exclusive options, or none; `chosen` only for the user's picks).
 - **Scenes in the flyout** (issue #11) — scenes grid (3 columns, scroll) with
   "+ Salvar atual"; right-click on a scene → Renomear / Sobrescrever / Excluir.
 - **Manage pages** (issue #12) — Gerenciar grupos e lâmpadas → Editar grupo (name,

@@ -140,6 +140,8 @@ class TinyTuyaLink:
                     self.close()  # e.g. the device closed the connection
                     break
                 unread.update(_dps(message))
+        except Exception:  # library boundary: a broken socket; the call gets a new one
+            self.close()
         finally:
             device.set_socketTimeout(self._timeout)
         return unread

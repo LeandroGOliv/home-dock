@@ -1,3 +1,4 @@
+import socket
 from typing import ClassVar
 
 import pytest
@@ -45,7 +46,10 @@ class FakeTinyTuyaDevice:
 
     def receive(self):
         """Read the next message the device sent, without asking anything."""
-        return self.unread.pop(0) if self.unread else None
+        message = self.unread.pop(0) if self.unread else None
+        if isinstance(message, Exception):
+            raise message
+        return message
 
     def close(self):
         self.closed = True
@@ -223,13 +227,58 @@ def test_nothing_unread_reads_nothing_more():
 
 
 def test_a_dead_socket_found_while_reading_unread_messages_is_reopened():
-    link, device = connected_link()
-    device.unread = [{"Err": "901", "Error": "Network Error"}]
-    FakeTinyTuyaDevice.responses = [{"dps": {"20": True}}]
+    for dead in ({"Err": "901", "Error": "Network Error"}, ConnectionResetError("reset")):
+        FakeTinyTuyaDevice.instances = []
+        link, device = connected_link()
+        device.unread = [dead]
+        FakeTinyTuyaDevice.responses = [{"dps": {"20": True}}]
 
-    assert link.status() == {"20": True}
-    assert device.closed
-    assert len(FakeTinyTuyaDevice.instances) == 2
+        assert link.set_values({"20": True}) == {"20": True}
+        assert device.closed
+        old, new = FakeTinyTuyaDevice.instances
+        assert old.sent == [] and new.sent == [{"20": True}]  # the new socket got the write
+
+
+def test_at_most_max_unread_messages_are_read_before_a_call():
+    link, device = connected_link()
+    device.unread = [{"dps": {"22": n}} for n in range(tuya_module.MAX_UNREAD + 5)]
+    FakeTinyTuyaDevice.responses = [{"dps": {}}]
+
+    assert link.status() == {"22": tuya_module.MAX_UNREAD - 1}
+    assert len(device.unread) == 5
+
+
+def test_the_normal_timeout_is_back_after_reading_unread_messages():
+    link, device = connected_link()
+    for unread in ([{"dps": {"20": True}}], [OSError("reset")]):
+        device.unread = list(unread)
+        device.timeout = None
+        FakeTinyTuyaDevice.responses = [{"dps": {}}]
+        link.status()
+        assert device.timeout == 5.0
+
+
+def test_has_unread_sees_data_waiting_on_the_socket(monkeypatch):
+    monkeypatch.undo()  # the real check, on a local socket pair (no network)
+    ours, theirs = socket.socketpair()
+    try:
+        device = type("Device", (), {"socket": ours})()
+        assert not tuya_module._has_unread(device)
+        theirs.sendall(b"push")
+        assert tuya_module._has_unread(device)
+        device.socket = None
+        assert not tuya_module._has_unread(device)
+    finally:
+        ours.close()
+        theirs.close()
+    assert not tuya_module._has_unread(type("Device", (), {"socket": ours})())  # closed
+
+
+def test_tinytuya_devices_have_the_socket_and_receive_we_rely_on(monkeypatch):
+    monkeypatch.undo()
+    device = tuya_module.tinytuya.Device("dev-1", "192.0.2.10", "0123456789abcdef", version=3.4)
+    assert hasattr(device, "socket")
+    assert callable(device.receive)
 
 
 class QueuedBulb(FakeTinyTuyaDevice):
@@ -242,7 +291,8 @@ class QueuedBulb(FakeTinyTuyaDevice):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.dps = {"20": True, "21": "white", "22": 850, "23": 610, "24": "000003e801f4"}
+        # Blue: switching to red changes DPS 21 and 24, so a write leaves a push behind.
+        self.dps = {"20": True, "21": "white", "22": 850, "23": 610, "24": "00f003e803e8"}
 
     def status(self):
         self.unread.append({"dps": dict(self.dps)})
@@ -255,30 +305,52 @@ class QueuedBulb(FakeTinyTuyaDevice):
         self.unread.extend({"dps": {k: v}} for k, v in changed.items())
         return self.unread.pop(0) if self.unread else None
 
+    def change_elsewhere(self, dp, value):
+        """E.g. the Tuya app or a wall switch: the bulb pushes the change."""
+        self.dps[dp] = value
+        self.unread.append({"dps": {dp: value}})
 
-def test_the_bulb_state_is_right_after_writes_that_leave_pushes_behind(monkeypatch):
+
+BULB_SPEC = DeviceSpec(
+    id="dev-1",
+    name="Sala",
+    local_key="key-1",
+    ip="192.0.2.10",
+    version="3.4",
+    category="dj",
+    dps_codes={
+        "20": "switch_led",
+        "21": "work_mode",
+        "22": "bright_value_v2",
+        "23": "temp_value_v2",
+        "24": "colour_data_v2",
+    },
+)
+WHITE = DeviceState(power=True, work_mode=WorkMode.WHITE, brightness=80, color_temperature=20)
+RED = DeviceState(power=True, work_mode=WorkMode.COLOR, brightness=50, color_hsv=Color(0, 100))
+
+
+@pytest.fixture
+def queued_bulb(monkeypatch) -> RgbBulb:
     monkeypatch.setattr(tuya_module.tinytuya, "Device", QueuedBulb)
-    spec = DeviceSpec(
-        id="dev-1",
-        name="Sala",
-        local_key="key-1",
-        ip="192.0.2.10",
-        version="3.4",
-        category="dj",
-        dps_codes={
-            "20": "switch_led",
-            "21": "work_mode",
-            "22": "bright_value_v2",
-            "23": "temp_value_v2",
-            "24": "colour_data_v2",
-        },
-    )
-    bulb = RgbBulb(spec, connect=TinyTuyaLink)
-    white = DeviceState(power=True, work_mode=WorkMode.WHITE, brightness=80, color_temperature=20)
-    red = DeviceState(power=True, work_mode=WorkMode.COLOR, brightness=50, color_hsv=Color(0, 100))
+    return RgbBulb(BULB_SPEC, connect=TinyTuyaLink)
 
-    for changes in (white, red, white, red, white):
-        bulb.apply(changes)
-        state = bulb.read_state()
+
+def test_the_bulb_state_is_right_after_writes_that_leave_pushes_behind(queued_bulb):
+    for changes in (WHITE, RED, WHITE, RED, WHITE):
+        queued_bulb.apply(changes)
+        state = queued_bulb.read_state()
         assert state.restricted_to(changes.capabilities) == changes
-        assert bulb.read_state() == state  # and again: nothing old is left on the socket
+        assert queued_bulb.read_state() == state  # and again
+        assert FakeTinyTuyaDevice.instances[-1].unread == []  # nothing old left behind
+
+
+def test_a_change_made_elsewhere_is_seen_after_writes_left_messages_behind(queued_bulb):
+    queued_bulb.apply(WHITE)
+    queued_bulb.read_state()
+    queued_bulb.apply(RED)
+    queued_bulb.read_state()
+
+    FakeTinyTuyaDevice.instances[-1].change_elsewhere("20", False)
+
+    assert queued_bulb.read_state().power is False

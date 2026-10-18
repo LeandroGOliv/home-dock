@@ -232,6 +232,29 @@ def test_the_flyout_shows_the_names_and_groups_of_the_config(qtbot, data, execut
     home.close()
 
 
+def test_scenes_saved_in_the_flyout_persist_and_show_in_the_tray(qtbot, data, executor):
+    state = DeviceState(power=True, brightness=40)
+    bulb = FakeDevice("b1", "Abajur", DeviceType.RGB_BULB, frozenset(Capability), state=state)
+    home = make_home(data, executor, bulb)
+    home.flyout.open()
+    section = home.flyout.main.scenes
+
+    section.save_link.click()
+    section.editor.field.setText("Leitura")
+    section.editor.save_button.click()
+    settle(executor)
+
+    home.tray.menu.aboutToShow.emit()
+    scenes = next(a for a in home.tray.menu.actions() if a.text() == strings.SCENES).menu()
+    assert [a.text() for a in scenes.actions()] == ["Leitura"]
+    home.close()
+
+    again = open_app_data(data.paths)  # the next start
+    [saved] = again.config.scenes
+    assert saved.name == "Leitura"
+    assert saved.devices == {"b1": state}
+
+
 def test_left_click_on_the_tray_icon_opens_the_flyout(qtbot, data, executor):
     from PySide6.QtWidgets import QSystemTrayIcon
 

@@ -9,7 +9,7 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtWidgets import QApplication, QLabel
 
 from executors import ManualExecutor
-from homedock.core import ControlService, Group, GroupBook, Target
+from homedock.core import ControlService, Group, GroupBook, Scene, Target
 from homedock.devices import Capability, DeviceError, DeviceState, DeviceType
 from homedock.devices.fake import FakeDevice
 from homedock.ui import strings, theme
@@ -26,7 +26,7 @@ def bulb(device_id: str, name: str | None = None, **kwargs) -> FakeDevice:
 
 
 class FakeStore:
-    """Stands in for the persisted "last target" setting."""
+    """Stands in for a persisted value: the last target, the scenes."""
 
     def __init__(self, value: Target | None = None, fail: bool = False) -> None:
         self.value = value
@@ -58,14 +58,19 @@ def executor() -> ManualExecutor:
 def make_flyout(qtbot, executor):
     created = []
 
-    def make(*devices, groups=(), names=None, store=None, panels=None, clock=None, pool=None):
+    def make(
+        *devices, groups=(), names=None, store=None, scenes=None, panels=None, clock=None, pool=None
+    ):
         service = ControlService(devices, GroupBook(groups), executor=pool or executor, throttle=0)
         store = store or FakeStore()
+        scenes = scenes or FakeStore(())
         flyout = Flyout(
             service,
             names=lambda: names or {},
             last_target=store.get,
             set_last_target=store.set,
+            scenes=scenes.get,
+            save_scenes=scenes.set,
             panels=panels or PanelRegistry(),  # the panels are tested on their own
             clock=clock or FakeClock(),
         )
@@ -619,6 +624,91 @@ def test_without_a_registered_panel_only_the_selector_is_shown(home):
     flyout.open()
 
     assert flyout.main.panel is None
+
+
+# --- scenes ---------------------------------------------------------------------------------
+
+
+def test_the_scenes_show_below_the_panel(home, panels):
+    flyout, _ = home(panels=panels, scenes=FakeStore((Scene("s1", "Leitura"),)))
+    flyout.open()
+
+    scenes = flyout.main.scenes
+    assert scenes.isVisible()
+    assert [b.text() for b in scenes.grid.buttons] == ["Leitura"]
+    assert scenes.y() > flyout.main.panel.parentWidget().geometry().bottom()
+
+
+def test_the_list_takes_the_place_of_the_scenes_while_open(home, qtbot):
+    flyout, _ = home()
+    flyout.open()
+
+    qtbot.mouseClick(flyout.main.target_button, Qt.MouseButton.LeftButton)
+    assert not flyout.main.scenes.isVisible()
+
+    qtbot.mouseClick(flyout.main.target_button, Qt.MouseButton.LeftButton)
+    assert flyout.main.scenes.isVisible()
+
+
+def test_save_current_saves_the_selected_target(home, executor, qtbot):
+    store = FakeStore(())
+    flyout, (*_, b3) = home(scenes=store)
+    flyout.open()
+    choose(flyout, Target.group("g2"), qtbot)
+    settle(executor)
+
+    section = flyout.main.scenes
+    qtbot.mouseClick(section.save_link, Qt.MouseButton.LeftButton)
+    qtbot.keyClick(section.editor.field, Qt.Key.Key_Return)
+    settle(executor)
+
+    [saved] = store.value
+    assert saved.name == "Cena 1"
+    assert set(saved.devices) == {b3.id}
+
+
+def test_escape_in_the_name_field_cancels_it_and_keeps_the_flyout_open(home, qtbot):
+    flyout, _ = home()
+    flyout.open()
+    section = flyout.main.scenes
+    qtbot.mouseClick(section.save_link, Qt.MouseButton.LeftButton)
+
+    qtbot.keyClick(section.editor.field, Qt.Key.Key_Escape)
+
+    assert not section.editing()
+    assert flyout.isVisible()
+
+
+def test_reopening_shows_the_latest_scenes_and_closes_the_name_field(home, qtbot):
+    store = FakeStore(())
+    flyout, _ = home(scenes=store)
+    flyout.open()
+    qtbot.mouseClick(flyout.main.scenes.save_link, Qt.MouseButton.LeftButton)
+
+    flyout.hide()
+    store.value = (Scene("s1", "Filme"),)
+    flyout.open()
+
+    assert not flyout.main.scenes.editing()
+    assert [b.text() for b in flyout.main.scenes.grid.buttons] == ["Filme"]
+
+
+def test_a_notice_grows_the_flyout_upwards_and_keeps_the_scenes_in_place(home, executor, qtbot):
+    offline = (Scene("s1", "Filme", {"b1": DeviceState(power=True)}),)
+    flyout, (b1, *_) = home(scenes=FakeStore(offline))
+    b1.online = False
+    flyout.open()
+    grid = flyout.main.scenes.grid
+    before, grid_before = flyout.frameGeometry(), grid.mapToGlobal(grid.rect().topLeft())
+
+    qtbot.mouseClick(grid.buttons[0], Qt.MouseButton.LeftButton)
+    settle(executor)
+
+    assert not flyout.main.scenes.notice.isHidden()
+    after = flyout.frameGeometry()
+    assert after.height() > before.height()
+    assert after.bottom() == before.bottom()
+    assert grid.mapToGlobal(grid.rect().topLeft()) == grid_before
 
 
 # --- responsiveness ---------------------------------------------------------------------------

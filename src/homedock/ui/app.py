@@ -9,7 +9,7 @@ from dataclasses import replace
 
 from PySide6.QtWidgets import QApplication
 
-from homedock.core import ControlService, GroupBook, Target
+from homedock.core import ControlService, GroupBook, Scene, Target
 from homedock.storage import AppData, open_app_data
 from homedock.ui import strings
 from homedock.ui.flyout import Flyout
@@ -34,6 +34,8 @@ class HomeDock:
             names=lambda: self.data.config.names,
             last_target=lambda: self.data.config.settings.last_target,
             set_last_target=self._save_last_target,
+            scenes=lambda: self.data.config.scenes,
+            save_scenes=self._save_scenes,
         )
         self.tray = TrayController(
             self.service,
@@ -60,6 +62,9 @@ class HomeDock:
 
     def _save_last_target(self, target: Target) -> None:
         self._save_settings(last_target=target)
+
+    def _save_scenes(self, scenes: Sequence[Scene]) -> None:
+        self.data.save(replace(self.data.config, scenes=tuple(scenes)))
 
     def _save_settings(self, **changes: object) -> None:
         config = self.data.config

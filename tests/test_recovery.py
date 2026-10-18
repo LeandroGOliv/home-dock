@@ -41,6 +41,17 @@ class Rediscovery:
         return future
 
 
+class FlakyBulb(FakeDevice):
+    """Writes reach it, reads fail while ``reads_fail`` (e.g. it drops off between two I/Os)."""
+
+    reads_fail = False
+
+    def read_state(self) -> DeviceState:
+        if self.reads_fail:
+            self.online = False
+        return super().read_state()
+
+
 def bulb(device_id: str = "bulb-1", online: bool = True) -> FakeDevice:
     capabilities = frozenset(Capability)
     return FakeDevice(device_id, device_id, DeviceType.RGB_BULB, capabilities, online=online)
@@ -90,6 +101,28 @@ def probe(timers: FakeTimers, executor: ManualExecutor) -> None:
     """Let the pending probes run and answer."""
     timers.fire()
     executor.run_all()
+
+
+def count_reads(service: ControlService) -> list[str]:
+    """Record the device of every read (probe) asked to ``service``."""
+    reads: list[str] = []
+    refresh = service.refresh
+
+    def spy(target: Target):
+        reads.append(target.key)
+        return refresh(target)
+
+    service.refresh = spy
+    return reads
+
+
+def staggered(make, executor, timers):
+    """bulb-1 one failure ahead of bulb-2: bulb-1 reaches the scan threshold first."""
+    service, recovery = make(bulb("bulb-1", online=False), bulb("bulb-2", online=False))
+    read(service, executor, "bulb-1")
+    probe(timers, executor)
+    read(service, executor, "bulb-2")
+    return service, recovery
 
 
 def fail_until_scan(timers: FakeTimers, executor: ManualExecutor) -> None:
@@ -278,6 +311,94 @@ def test_rediscovery_runs_at_most_once_per_interval(make, executor, timers, cloc
     assert len(rediscover.calls) == 2
 
 
+def test_a_rediscovery_is_allowed_again_exactly_one_interval_later(
+    make, executor, timers, clock, rediscover
+):
+    service, _ = make(bulb(online=False))
+    read(service, executor, "bulb-1")
+    fail_until_scan(timers, executor)
+    started = clock.now
+    rediscover.calls[0].set_result(None)
+    executor.run_all()
+
+    clock.now = started + SCAN_INTERVAL - 1
+    probe(timers, executor)
+    assert len(rediscover.calls) == 1
+
+    clock.now = started + SCAN_INTERVAL
+    probe(timers, executor)
+    assert len(rediscover.calls) == 2
+
+
+def test_a_device_reaching_the_threshold_during_a_scan_waits_for_it(
+    make, executor, timers, rediscover
+):
+    service, _ = staggered(make, executor, timers)
+    probe(timers, executor)  # bulb-1 starts the scan
+    probe(timers, executor)  # bulb-2 reaches the threshold meanwhile
+
+    assert timers.pending == []
+    assert len(rediscover.calls) == 1
+
+    reads = count_reads(service)
+    rediscover.calls[0].set_result(None)
+    executor.run_all()
+    assert sorted(reads) == ["bulb-1", "bulb-2"]  # each probed once, at once
+
+
+def test_the_end_of_a_scan_probes_at_once_instead_of_waiting(make, executor, timers, rediscover):
+    staggered(make, executor, timers)
+    probe(timers, executor)  # bulb-1 starts the scan; bulb-2 waits for its next probe
+    [waiting] = timers.pending
+
+    rediscover.calls[0].set_result(None)
+
+    assert waiting.cancelled
+
+
+def test_a_timer_firing_as_the_scan_ends_probes_once(make, executor, timers, rediscover):
+    service, _ = staggered(make, executor, timers)
+    probe(timers, executor)
+    [waiting] = timers.pending
+    reads = count_reads(service)
+
+    rediscover.calls[0].set_result(None)  # probes bulb-2 at once
+    waiting.callback()  # a threading.Timer may fire just as it is cancelled
+    executor.run_all()
+
+    assert reads.count("bulb-2") == 1
+
+
+def test_a_timer_firing_after_its_device_came_back_probes_nothing(make, executor, timers):
+    device = bulb(online=False)
+    service, _ = make(device)
+    read(service, executor, "bulb-1")
+    [stale] = timers.pending
+    device.online = True
+    service.send(Target.device("bulb-1"), DeviceState(power=True))
+    executor.run_all()
+    device.online = False
+    read(service, executor, "bulb-1")  # offline again: a new watch
+
+    stale.callback()  # the first timer, firing just as it was cancelled
+
+    assert not executor.tasks
+
+
+def test_a_late_probe_answer_leaves_the_next_outage_alone(make, executor, timers):
+    device = FlakyBulb("bulb-1", "bulb-1", DeviceType.RGB_BULB, frozenset(Capability))
+    device.online = False
+    service, _ = make(device)
+    read(service, executor, "bulb-1")
+    device.online, device.reads_fail = True, True
+    service.send(Target.device("bulb-1"), DeviceState(power=True))  # reaches the bulb...
+
+    probe(timers, executor)  # ...but the probe queued behind it fails: a new outage
+
+    assert service.is_online("bulb-1") is False
+    assert timers.delays == [PROBE_DELAY]  # the new outage starts over, once
+
+
 def test_a_device_failing_again_later_starts_from_the_short_delay(
     make, executor, timers, rediscover
 ):
@@ -362,8 +483,10 @@ def test_start_timer_calls_back_on_a_daemon_thread():
 
 def test_a_cancelled_timer_never_calls_back():
     called = threading.Event()
-    timer = start_timer(0.05, called.set)
+    timer = start_timer(60, called.set)
 
     timer.cancel()
+    timer.join(timeout=5)
 
-    assert not called.wait(timeout=0.2)
+    assert not timer.is_alive()
+    assert not called.is_set()

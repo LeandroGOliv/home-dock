@@ -441,3 +441,12 @@ def test_apply_rereads_a_cache_older_than_its_ttl():
     bulb.apply(DeviceState(brightness=100))
     assert link.status_calls == 2
     assert link.writes[-1] == {"24": "00f003e803e8"}  # not DPS 22: the bulb is in colour
+
+
+def test_an_off_scene_entry_goes_in_one_write_with_its_mode_and_colour():
+    # A scene saved with the bulb off: it stays off and keeps the colour for the next power-on
+    # (verified on the PSBAM bulbs, issue #11).
+    off_red = DeviceState(
+        power=False, work_mode=WorkMode.COLOR, brightness=50, color_hsv=Color(0, 100)
+    )
+    assert written(WHITE_DPS, off_red) == [{"20": False, "21": "colour", "24": "000003e801f4"}]

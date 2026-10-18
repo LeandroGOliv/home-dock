@@ -90,3 +90,9 @@ def test_restore_refuses_a_scene_that_is_still_in_the_book():
     with pytest.raises(ValueError):
         book.restore(Scene("s-1", "Leitura", READING), 0)
     assert len(book.all()) == 1
+
+
+def test_restore_at_the_first_position():
+    book = make_book(Scene("s-2", "Festa", PARTY))
+    book.restore(Scene("s-1", "Leitura", READING), 0)
+    assert [s.id for s in book.all()] == ["s-1", "s-2"]

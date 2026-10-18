@@ -1,35 +1,45 @@
-"""Generic controls of the panels, in the Windows 11 style: a slider and a segmented control.
+"""Generic controls of the flyout, in the Windows 11 style: a slider, a segmented control, a
+text link, an inline name field and a discreet notice.
 
-Like the dials, they emit what the user does and nothing for values set by code, so a
-panel can show the device state without echoing it back as a command.
+Like the dials, the slider and the segmented control emit what the user does and nothing
+for values set by code, so a panel can show the device state without echoing it back as a
+command.
 """
 
 from __future__ import annotations
 
-from collections.abc import Hashable, Sequence
+from collections.abc import Callable, Hashable, Sequence
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
+    QEnterEvent,
     QFocusEvent,
+    QFontMetrics,
     QHideEvent,
     QKeyEvent,
     QMouseEvent,
     QPainter,
     QPaintEvent,
+    QPalette,
     QPen,
 )
 from PySide6.QtWidgets import (
     QButtonGroup,
     QHBoxLayout,
+    QLineEdit,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from homedock.ui import strings, theme
+from homedock.ui.icons import paint_check, paint_close
 from homedock.ui.widgets import PaintedButton, draw_text, label
 
 PAGE_STEP = 10  # Page Up / Page Down
+NOTICE_DURATION = 6000  # milliseconds a notice stays
+MAX_NAME = 40
+LINK_PADDING = 6
 
 
 class Slider(QWidget):
@@ -338,3 +348,183 @@ class SegmentedControl(QWidget):
         radius = theme.CONTROL_RADIUS + theme.TABS_INSET / 2
         painter.drawRoundedRect(frame, radius, radius)
         painter.end()
+
+
+class LinkButton(PaintedButton):
+    """Accent-coloured text that acts like a button (e.g. "+ Salvar atual", "Desfazer")."""
+
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setText(text)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+    def sizeHint(self) -> QSize:
+        metrics = QFontMetrics(theme.font())
+        width = metrics.horizontalAdvance(self.text()) + 2 * LINK_PADDING
+        return QSize(width, theme.LINK_HEIGHT)
+
+    def paintEvent(self, _event: QPaintEvent) -> None:
+        painter = self.painter()
+        self.paint_hover(painter)
+        color = theme.ACCENT if self.isEnabled() else theme.DEVICE_OFF
+        draw_text(
+            painter,
+            QRectF(self.rect()),
+            self.text(),
+            theme.font(),
+            color,
+            Qt.AlignmentFlag.AlignHCenter,
+        )
+        painter.end()
+
+
+class IconButton(PaintedButton):
+    """A square button with a painted glyph (the name field's ✓ and ✕)."""
+
+    def __init__(
+        self,
+        glyph: Callable[..., None],
+        name: str,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._glyph = glyph
+        self.setFixedSize(theme.EDITOR_HEIGHT, theme.EDITOR_HEIGHT)
+        self.setAccessibleName(name)
+        self.setToolTip(name)
+
+    def paintEvent(self, _event: QPaintEvent) -> None:
+        painter = self.painter()
+        self.paint_hover(painter)
+        glyph = QRectF(0, 0, theme.ICON, theme.ICON)
+        glyph.moveCenter(QRectF(self.rect()).center())
+        self._glyph(painter, glyph, theme.TEXT if self.isEnabled() else theme.DEVICE_OFF)
+        painter.end()
+
+
+class NameField(QLineEdit):
+    """A text box where Esc cancels (instead of closing the flyout)."""
+
+    cancelled = Signal()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            self.cancelled.emit()
+            return
+        super().keyPressEvent(event)
+
+
+class NameEditor(QWidget):
+    """An inline field for a name (a dialog would take the focus and close the flyout):
+    Enter or ✓ accepts it, Esc or ✕ cancels (Esc never reaches the flyout, which would
+    close). ``placeholder`` also names the field for screen readers."""
+
+    accepted = Signal(str)
+    cancelled = Signal()
+
+    def __init__(self, placeholder: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.field = NameField()
+        self.field.setFont(theme.font())
+        self.field.setFixedHeight(theme.EDITOR_HEIGHT)
+        self.field.setMaxLength(MAX_NAME)
+        self.field.setPlaceholderText(placeholder)
+        self.field.setAccessibleName(placeholder)
+        self.field.setStyleSheet(FIELD_STYLE)
+        # Qt's own menu (Undo, Cut, Copy...) would be in English: no translation is loaded.
+        self.field.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        palette = self.field.palette()
+        palette.setColor(QPalette.ColorRole.PlaceholderText, theme.TEXT_SECONDARY)
+        self.field.setPalette(palette)
+        self.save_button = IconButton(paint_check, strings.SAVE)
+        self.cancel_button = IconButton(paint_close, strings.CANCEL)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(theme.EDITOR_GAP)
+        layout.addWidget(self.field, 1)
+        layout.addWidget(self.save_button)
+        layout.addWidget(self.cancel_button)
+
+        self.field.returnPressed.connect(self._accept)
+        self.field.textChanged.connect(self._sync)
+        self.field.cancelled.connect(self.cancelled)
+        self.save_button.clicked.connect(self._accept)
+        self.cancel_button.clicked.connect(self.cancelled)
+
+    def start(self, text: str) -> None:
+        """Edit ``text``, all selected so typing replaces it."""
+        self.field.setText(text)
+        self.field.selectAll()
+        self._sync()
+        self.field.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Escape:  # e.g. on ✓ or ✕
+            self.cancelled.emit()
+            return
+        super().keyPressEvent(event)
+
+    def _sync(self) -> None:
+        self.save_button.setEnabled(bool(self.field.text().strip()))
+
+    def _accept(self) -> None:
+        name = self.field.text().strip()
+        if name:
+            self.accepted.emit(name)
+
+
+class Notice(QWidget):
+    """A discreet line of text with an optional action link. It hides by itself, but not
+    under the pointer: the flyout would shrink while the user reaches for the action."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.text = label("", theme.font(theme.CAPTION), theme.TEXT_SECONDARY)
+        self.text.setWordWrap(True)
+        self.action = LinkButton("")
+        self.action.hide()
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.setInterval(NOTICE_DURATION)
+        self._callback: Callable[[], object] | None = None
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(theme.SPACING)
+        layout.addWidget(self.text, 1)
+        layout.addWidget(self.action)
+        self.action.clicked.connect(self._act)
+
+    def set_message(self, text: str, action: tuple[str, Callable[[], object]] | None) -> None:
+        self.text.setText(text)
+        self.action.setVisible(action is not None)
+        if action is not None:
+            self.action.setText(action[0])
+            self.action.updateGeometry()
+        self._callback = action[1] if action is not None else None
+        self.timer.start()
+
+    def enterEvent(self, event: QEnterEvent) -> None:
+        self.timer.stop()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event: QEvent) -> None:
+        if self.isVisible():
+            self.timer.start()
+        super().leaveEvent(event)
+
+    def _act(self) -> None:
+        if self._callback is not None:
+            self._callback()
+
+
+FIELD_STYLE = f"""
+QLineEdit {{
+    background: {theme.SURFACE.name()}; color: {theme.TEXT.name()};
+    border: 1px solid {theme.SURFACE_BORDER.name()}; border-radius: {theme.ROW_RADIUS}px;
+    padding: 0 {theme.FIELD_PADDING}px;
+    selection-background-color: {theme.ACCENT.name()}; selection-color: {theme.ON_ACCENT.name()};
+}}
+QLineEdit:focus {{ border-bottom: 2px solid {theme.ACCENT.name()}; }}
+"""

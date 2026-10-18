@@ -11,8 +11,8 @@ Na v1 o foco são as **lâmpadas RGB Wi-Fi da Positivo Casa Inteligente** (Tuya 
 - liga/desliga, modo branco (temperatura de cor) e modo cor (matiz, saturação, brilho);
 - grupos definidos por você (ex.: Sala, Quarto) — uma lâmpada pode estar em vários;
 - cenas salvas (ex.: Leitura, Filme, Relaxar);
-- flyout compacto no estilo Windows 11, que segue o tema claro/escuro e a cor de
-  destaque do sistema;
+- flyout compacto no estilo Windows 11, que segue o modo do Windows (claro/escuro) e a
+  cor de destaque, e se atualiza na hora quando você os troca;
 - opção de iniciar com o Windows.
 
 > **Status:** em desenvolvimento. O ícone na bandeja, o menu e o painel (flyout) com o

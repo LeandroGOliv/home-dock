@@ -247,14 +247,15 @@ when `APPDATA` is unset), never in the repo or the working directory:
 
 Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py`,
 `icons.py`, `flyout.py`, `placement.py`, `target_model.py`, `selector.py`, `panels.py`,
-`bulb_panel.py`, `controls.py`, `scenes.py`, `manage.py`, `theme.py`, `widgets.py`,
-`dial_math.py`, `dials.py`, `strings.py`. The UI may import `core`, `storage`,
+`bulb_panel.py`, `controls.py`, `scenes.py`, `manage.py`, `theme.py`, `system_theme.py`,
+`widgets.py`, `dial_math.py`, `dials.py`, `strings.py`. The UI may import `core`, `storage`,
 `masking` and the public `homedock.devices` API only (guarded by a test).
 
 - **Start-up** — `homedock` (`__main__` → `ui.app.run()`): takes the single-instance lock
   (a named Windows mutex, `Local\HomeDock.SingleInstance`; a second launch exits at once,
   before touching any file — also when the first one runs with other rights, e.g.
-  elevated, and the mutex cannot even be opened), runs the storage start-up, builds the `ControlService` over
+  elevated, and the mutex cannot even be opened), starts following the Windows theme
+  (before any widget is built), runs the storage start-up, builds the `ControlService` over
   the imported devices and shows the tray. The app does not quit when a window closes;
   "Sair" quits, and the service is shut down on the way out. It persists what the flyout
   changes (`config.json`: last target, scenes, names, groups) and runs the device reload
@@ -424,9 +425,35 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
     foi possível salvar os grupos".
   - A widget must get its parent before `setVisible(True)`: shown without one, it opens
     as a window of its own, which takes the activation and closes the flyout.
-- **Theme** (`theme.py`) — colours, sizes and fonts measured on the mockups (dark theme,
-  accent `#F2B544`, Segoe UI Variable/Segoe UI, 14/13 px). Widgets read them only from
-  there; following the Windows theme and accent (issue #13) replaces these values.
+- **Theme** (`theme.py`) — colours, sizes and fonts measured on the mockups (Segoe UI
+  Variable/Segoe UI, 14/13 px). Widgets read them only from there. The colours that depend
+  on the theme form a `Colors` palette: `DARK` (the mockups; accent `#F2B544` until Windows
+  gives one) and `LIGHT` (the Windows 11 light flyouts; no mockup). `theme.colors` is the
+  palette in use; widgets read it **when they paint**, never at import or construction.
+  `Colors.with_accent()` sets the accent and the text over it (`text_on()`: black or white,
+  whichever has the higher WCAG `contrast_ratio()`); the tests check text, status and focus
+  colours against every background of both palettes. On the light palette the dial bands
+  get a faint outline (`dial_outline`), or their yellow / warm white would melt into the
+  window. The device-on dot, the dial marker and the temperature colours are the same in
+  both themes.
+  - Colours set outside `paintEvent` (a label's palette, a text field's or scroll area's
+    style sheet) belong in an `apply_theme()` method (the `Themed` protocol, `widgets.py`),
+    called once in `__init__`: `Label` (`label()`), `TextField` (`NameField`, the group
+    name), `ScrollBody`, `SceneStrip`, `TargetList`. `restyle_all()` calls it on every
+    widget of the app and repaints them all.
+- **Windows theme** (`system_theme.py`) — `SystemTheme(app)` follows the **Windows mode**
+  (`SystemUsesLightTheme`: taskbar, Start and the Windows flyouts), not the app mode
+  (`AppsUseLightTheme`): the flyout sits by the taskbar, like the Windows flyouts. Its
+  accent is the shade those flyouts use, from `AccentPalette` (`HKCU\…\Explorer\Accent`,
+  8 RGBA shades, Light3 → Dark3): **Light2** on dark, **Dark1** on light (what Qt picks
+  too); Qt's accent when the value is missing, and dark when the mode is. It asks Qt for
+  the same colour scheme (`QStyleHints.setColorScheme`), so Qt's own widgets — the tray
+  menu — match. When Windows changes its colours, Qt sends the app a `ThemeChange` event
+  (verified with the scheme forced, and with only the tray icon open); `SystemTheme`
+  reads the registry again and, if the palette changed, calls `theme.use()` and
+  `restyle_all()`. Asking Qt for another scheme sends a `ThemeChange` at once, so it only
+  asks when the scheme differs (else it recurses). The offscreen platform ignores the
+  request (that one test is skipped there).
 - **Hue ring and temperature arc** (`dials.py`) — `HueRing` and `TemperatureArc`, 220 px
   dials painted with `QPainter` (`QConicalGradient` band, white marker with a faint dark
   outline so it shows on the light whites). The hue ring goes round 360°, red at the top

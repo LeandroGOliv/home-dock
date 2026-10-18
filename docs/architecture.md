@@ -61,6 +61,12 @@ transport), `rgb_bulb.py` (bulb driver, the only place with bulb DPS), `registry
   contain the IP) and drops/reopens the socket after any error and after 20 s idle (Tuya
   devices drop idle connections). It accepts protocol versions 3.1/3.3/3.4/3.5 (default
   3.4) and undoes tinytuya's sticky "one DPS per command" fallback after every write.
+  tinytuya reads one message per call without matching it to the request, and a write is
+  answered by an ack plus **one status push per changed DPS**, so pushes stay on the
+  socket; a read retried after one would leave its own answer there too, and a later call
+  took that old full status as current. So every call first reads, without waiting
+  (`select`), each message already on the socket, oldest first, and returns their DPS
+  under its own answer (verified on hardware, issue #11).
 - A driver translates normalised values ↔ DPS. For the RGB bulb:
   - power → DPS 20; mode → DPS 21;
   - brightness → DPS 22 in white mode, **V of DPS 24** in colour mode (raw = % × 10,
@@ -134,7 +140,8 @@ protocol; tests guard that it never mentions `RgbBulb`, imports only the public
   delete; a device may belong to many groups; mixed types allowed. Tuya groups are not
   used. Names are trimmed and must not be blank.
 - **Scenes** — `SceneBook` of `Scene(id, name, devices: {device id: DeviceState})`:
-  create, rename, overwrite, delete. Stored (by `storage`) as:
+  create, rename, overwrite, delete, restore (undo a delete, at its position). Stored (by
+  `storage`) as:
 
   ```json
   {
@@ -214,8 +221,8 @@ refresh IPs, and warns when a Tuya device on the LAN is missing from `devices.js
 
 Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py`,
 `icons.py`, `flyout.py`, `placement.py`, `target_model.py`, `selector.py`, `panels.py`,
-`bulb_panel.py`, `controls.py`, `theme.py`, `widgets.py`, `dial_math.py`, `dials.py`,
-`strings.py`. The UI may import `core`, `storage`,
+`bulb_panel.py`, `controls.py`, `scenes.py`, `theme.py`, `widgets.py`, `dial_math.py`,
+`dials.py`, `strings.py`. The UI may import `core`, `storage`,
 `masking` and the public `homedock.devices` API only (guarded by a test).
 
 - **Start-up** — `homedock` (`__main__` → `ui.app.run()`): takes the single-instance lock
@@ -317,8 +324,28 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
   reached with the keyboard; `moved` / `released` and `set_value()` like the dials, also
   ending a drag when hidden or disabled), `SliderRow` (title + value in percent) and
   `SegmentedControl` (exclusive options, or none; `chosen` only for the user's picks).
-- **Scenes in the flyout** (issue #11) — scenes grid (3 columns, scroll) with
-  "+ Salvar atual"; right-click on a scene → Renomear / Sobrescrever / Excluir.
+- **Scenes in the flyout** (`scenes.py`) — `ScenesSection`, below the panel (hidden while
+  the target list is open, shown for every target, also mixed groups). Generic: it only
+  calls `apply_scene()` / `capture()` and edits a `SceneBook`; the tray menu reads the
+  same `config.scenes`, so both show the same list.
+  - Header "Cenas" + "+ Salvar atual", then the grid: 3 equal columns, **one row visible**
+    (the rest scrolls a whole row per wheel notch; a button reached with Tab scrolls to its
+    row), "Nenhuma cena salva" when empty. A click applies the scene.
+  - Names are typed in an **inline field** that takes the header's place (same height):
+    a dialog would take the focus and close the flyout. Enter or ✓ accepts, Esc or ✕
+    cancels (Esc there does not close the flyout); the suggestion is "Cena n", the first
+    free number. "Salvar atual" captures the **current target** when the name is accepted.
+  - Right click or the menu key → Renomear | Sobrescrever com o estado atual | Excluir (a
+    `QMenu` popup does not deactivate the flyout). Saving and overwriting are disabled for
+    a target without devices.
+  - A discreet **notice** above the grid (so the grid stays under the pointer while the
+    flyout grows upwards) hides after 6 s: offline devices left out when applying or
+    saving ("Filme · 1 lâmpada offline ficou de fora"), nothing saved when no device
+    answered, a failed save, and "Cena X excluída" with **Desfazer**, which puts the scene
+    back at its position (`SceneBook.restore`).
+  - Every change is persisted at once through `save_scenes` (`AppData.save`); the grid
+    then shows what is saved, so a failed save (`OSError`) leaves the old list. Opening the
+    flyout re-reads the scenes, closes the name field and hides the notice.
 - **Manage pages** (issue #12) — Gerenciar grupos e lâmpadas → Editar grupo (name,
   members, delete).
 - **Theme** (`theme.py`) — colours, sizes and fonts measured on the mockups (dark theme,

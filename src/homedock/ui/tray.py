@@ -5,6 +5,7 @@ Desligar todos · a toggle per device (showing its current state) · Cenas ▸ �
 Windows ☑ · Sair. Works on generic devices: every device with the ``power`` capability gets
 a toggle. Commands go through the control service and never block the UI thread; the menu
 reads the real device state each time it opens and updates live as answers arrive.
+Checkable items keep the menu open, so several devices can be toggled in a row.
 """
 
 from __future__ import annotations
@@ -15,9 +16,9 @@ from concurrent.futures import Future
 from functools import partial
 from typing import Any, Protocol
 
-from PySide6.QtCore import QObject, Signal
-from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QMenu, QSystemTrayIcon
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtGui import QAction, QKeyEvent, QMouseEvent
+from PySide6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
 from homedock.core import ControlService, Scene, Target
 from homedock.devices import Capability, Device, DeviceState
@@ -32,6 +33,42 @@ class Flyout(Protocol):
     def toggle(self) -> None: ...
 
     def open(self) -> None: ...
+
+
+class StayOpenMenu(QMenu):
+    """A menu that stays open when a checkable item is toggled, by mouse or keyboard (Enter
+    or space); every other item closes it as usual, and so do Esc and a click outside."""
+
+    _TOGGLE_KEYS = frozenset({Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space})
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._pressed = False
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        self._pressed = self.rect().contains(event.position().toPoint())
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        # Like QMenu: only a click that started in the menu chooses the item under it.
+        pressed, self._pressed = self._pressed, False
+        item = self.actionAt(event.position().toPoint())
+        if pressed and item is not None and item is self.activeAction() and _toggles(item):
+            item.trigger()
+            return
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        item = self.activeAction()
+        if event.key() in self._TOGGLE_KEYS and item is not None and _toggles(item):
+            if not event.isAutoRepeat():  # holding the key down toggles once
+                item.trigger()
+            return
+        super().keyPressEvent(event)
+
+
+def _toggles(item: QAction) -> bool:
+    return item.isEnabled() and item.isCheckable() and item.menu() is None
 
 
 class TrayController(QObject):
@@ -66,7 +103,7 @@ class TrayController(QObject):
         self._bridge.state_changed.connect(self._on_device_changed)
         self._bridge.online_changed.connect(self._on_device_changed)
 
-        self.menu = QMenu()
+        self.menu = StayOpenMenu()
         self.device_actions: dict[str, QAction] = {}
         self._build_menu()
         self.menu.aboutToShow.connect(self._on_menu_about_to_show)

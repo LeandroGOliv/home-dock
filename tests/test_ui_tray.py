@@ -5,7 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 from enum import StrEnum
 
 import pytest
-from PySide6.QtCore import QEvent
+from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from executors import ManualExecutor
@@ -437,6 +438,222 @@ def test_quit_asks_the_app_to_quit(make_tray, qtbot):
 
     with qtbot.waitSignal(tray.quit_requested):
         action(tray, strings.QUIT).trigger()
+
+
+# --- staying open -----------------------------------------------------------------------------
+
+# Enter on the main keyboard and on the keypad, and the space bar.
+ACTIVATION_KEYS = [Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space]
+
+
+def show_menu(qtbot, tray: TrayController) -> None:
+    tray.menu.popup(QPoint(200, 200))
+    qtbot.waitUntil(tray.menu.isVisible)
+
+
+def click(qtbot, menu, item, button=Qt.MouseButton.LeftButton) -> None:
+    qtbot.mouseClick(menu, button, pos=menu.actionGeometry(item).center())
+
+
+def press(qtbot, menu, item, key: Qt.Key) -> None:
+    menu.setActiveAction(item)
+    qtbot.keyClick(menu, key)
+
+
+def closing_items(tray: TrayController) -> list:
+    texts = [strings.OPEN_PANEL, strings.TURN_ALL_ON, strings.TURN_ALL_OFF, strings.QUIT]
+    return [action(tray, text) for text in texts]
+
+
+@pytest.mark.parametrize("button", [Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton])
+def test_clicking_device_items_one_after_another_keeps_the_menu_open(
+    make_tray, executor, qtbot, button
+):
+    devices = [bulb("b1", state=DeviceState(power=False)), bulb("b2", state=DeviceState())]
+    tray = make_tray(*devices)
+    show_menu(qtbot, tray)
+    settle(executor)
+
+    for device in devices:
+        click(qtbot, tray.menu, device_action(tray, device.id), button)
+        settle(executor)
+        assert tray.menu.isVisible()
+
+    assert [d.state.power for d in devices] == [True, True]
+    assert all(device_action(tray, d.id).isChecked() for d in devices)
+
+    click(qtbot, tray.menu, device_action(tray, "b1"), button)
+    settle(executor)
+    assert devices[0].state.power is False
+    assert tray.menu.isVisible()
+
+
+@pytest.mark.parametrize("key", ACTIVATION_KEYS)
+def test_toggling_a_device_from_the_keyboard_keeps_the_menu_open(make_tray, executor, qtbot, key):
+    device = bulb("b1", state=DeviceState(power=False))
+    tray = make_tray(device)
+    show_menu(qtbot, tray)
+    settle(executor)
+
+    press(qtbot, tray.menu, device_action(tray, "b1"), key)
+    settle(executor)
+
+    assert device.state.power is True
+    assert device_action(tray, "b1").isChecked()
+    assert tray.menu.isVisible()
+
+
+def test_clicking_start_with_windows_keeps_the_menu_open(make_tray, qtbot):
+    settings = FakeSettings(value=False)
+    tray = make_tray(bulb("b1"), settings=settings)
+    show_menu(qtbot, tray)
+    item = action(tray, strings.START_WITH_WINDOWS)
+
+    click(qtbot, tray.menu, item)
+    assert settings.value is True
+    assert item.isChecked()
+
+    click(qtbot, tray.menu, item)
+    assert settings.value is False
+    assert not item.isChecked()
+    assert tray.menu.isVisible()
+
+
+@pytest.mark.parametrize("key", ACTIVATION_KEYS)
+def test_toggling_start_with_windows_from_the_keyboard_keeps_the_menu_open(make_tray, qtbot, key):
+    settings = FakeSettings(value=False)
+    tray = make_tray(bulb("b1"), settings=settings)
+    show_menu(qtbot, tray)
+
+    press(qtbot, tray.menu, action(tray, strings.START_WITH_WINDOWS), key)
+
+    assert settings.value is True
+    assert tray.menu.isVisible()
+
+
+def test_a_toggle_that_fails_while_the_menu_is_open_shows_the_device_off_again(
+    make_tray, executor, qtbot
+):
+    device = bulb("b1", "Abajur", state=DeviceState(power=False))
+    tray = make_tray(device)
+    show_menu(qtbot, tray)
+    settle(executor)
+    device.online = False
+
+    click(qtbot, tray.menu, device_action(tray, "b1"))
+    settle(executor)
+
+    assert tray.menu.isVisible()
+    assert not device_action(tray, "b1").isChecked()
+    assert device_action(tray, "b1").text() == "Abajur · offline"
+
+
+def test_device_state_changes_reach_the_open_menu(make_tray, executor, qtbot):
+    device = bulb("b1", state=DeviceState(power=False))
+    tray = make_tray(device)
+    show_menu(qtbot, tray)
+    settle(executor)
+
+    tray.service.send(Target.device("b1"), DeviceState(power=True))
+    settle(executor)
+
+    assert device_action(tray, "b1").isChecked()
+    assert tray.menu.isVisible()
+
+
+@pytest.mark.parametrize("index", range(4), ids=["open", "all-on", "all-off", "quit"])
+def test_clicking_the_other_items_closes_the_menu(make_tray, executor, qtbot, index):
+    tray = make_tray(bulb("b1"))
+    show_menu(qtbot, tray)
+
+    click(qtbot, tray.menu, closing_items(tray)[index])
+
+    assert not tray.menu.isVisible()
+
+
+# Space only toggles checkable items; on the other items it does what the style says.
+@pytest.mark.parametrize("key", [Qt.Key.Key_Return, Qt.Key.Key_Enter])
+@pytest.mark.parametrize("index", range(4), ids=["open", "all-on", "all-off", "quit"])
+def test_choosing_the_other_items_from_the_keyboard_closes_the_menu(
+    make_tray, executor, qtbot, index, key
+):
+    tray = make_tray(bulb("b1"))
+    show_menu(qtbot, tray)
+
+    press(qtbot, tray.menu, closing_items(tray)[index], key)
+
+    assert not tray.menu.isVisible()
+
+
+def test_choosing_a_scene_closes_the_menu(make_tray, executor, qtbot):
+    device = bulb("b1", state=DeviceState(power=False))
+    tray = make_tray(device, scenes=[Scene("s1", "Leitura", {"b1": DeviceState(power=True)})])
+    show_menu(qtbot, tray)
+    scenes = action(tray, strings.SCENES)
+
+    click(qtbot, tray.menu, scenes)
+    submenu = scenes.menu()
+    qtbot.waitUntil(submenu.isVisible)
+    assert tray.menu.isVisible()
+    click(qtbot, submenu, submenu.actions()[0])
+    settle(executor)
+
+    assert not submenu.isVisible()
+    assert not tray.menu.isVisible()
+    assert device.state.power is True
+
+
+def test_escape_closes_the_menu(make_tray, qtbot):
+    tray = make_tray(bulb("b1"))
+    show_menu(qtbot, tray)
+
+    qtbot.keyClick(tray.menu, Qt.Key.Key_Escape)
+
+    assert not tray.menu.isVisible()
+
+
+def test_a_click_outside_closes_the_menu(make_tray, qtbot):
+    tray = make_tray(bulb("b1"))
+    show_menu(qtbot, tray)
+
+    qtbot.mouseClick(tray.menu, Qt.MouseButton.LeftButton, pos=QPoint(-10, -10))
+
+    assert not tray.menu.isVisible()
+    assert not device_action(tray, "b1").isChecked()
+
+
+@pytest.mark.parametrize("key", ACTIVATION_KEYS)
+def test_holding_the_key_down_toggles_a_device_only_once(make_tray, executor, qtbot, key):
+    device = bulb("b1", state=DeviceState(power=False))
+    tray = make_tray(device)
+    show_menu(qtbot, tray)
+    item = device_action(tray, "b1")
+
+    press(qtbot, tray.menu, item, key)
+    for _ in range(3):
+        repeat = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier, "", True)
+        QApplication.sendEvent(tray.menu, repeat)
+    settle(executor)
+
+    assert device.applied == [DeviceState(power=True)]
+    assert item.isChecked()
+    assert tray.menu.isVisible()
+
+
+def test_a_release_without_a_press_in_the_menu_toggles_nothing(make_tray, executor, qtbot):
+    # The press that opened the menu happened elsewhere (e.g. on the tray icon).
+    device = bulb("b1", state=DeviceState(power=False))
+    tray = make_tray(device)
+    show_menu(qtbot, tray)
+    item = device_action(tray, "b1")
+
+    qtbot.mouseRelease(
+        tray.menu, Qt.MouseButton.LeftButton, pos=tray.menu.actionGeometry(item).center()
+    )
+    settle(executor)
+
+    assert device.applied == []
+    assert not item.isChecked()
 
 
 # --- responsiveness ---------------------------------------------------------------------------

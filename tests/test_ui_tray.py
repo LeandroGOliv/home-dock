@@ -40,11 +40,13 @@ class FakeFlyout:
 
 
 class FakeSettings:
-    """Stands in for the persisted "start with Windows" preference."""
+    """Stands in for the "start with Windows" registry entry; ``sticks=False`` makes a
+    change that succeeds but leaves the entry as it was."""
 
-    def __init__(self, value: bool = False, fail: bool = False) -> None:
+    def __init__(self, value: bool = False, fail: bool = False, sticks: bool = True) -> None:
         self.value = value
         self.fail = fail
+        self.sticks = sticks
 
     def get(self) -> bool:
         return self.value
@@ -52,7 +54,8 @@ class FakeSettings:
     def set(self, value: bool) -> None:
         if self.fail:
             raise PermissionError("read-only")
-        self.value = value
+        if self.sticks:
+            self.value = value
 
 
 @pytest.fixture
@@ -434,6 +437,17 @@ def test_start_with_windows_reverts_when_saving_fails(make_tray):
     item.trigger()
 
     assert not item.isChecked()
+
+
+@pytest.mark.parametrize("value", [False, True])
+def test_start_with_windows_shows_the_real_state_after_a_change(make_tray, value):
+    settings = FakeSettings(value=value, sticks=False)
+    tray = make_tray(bulb("b1"), settings=settings)
+    item = action(tray, strings.START_WITH_WINDOWS)
+
+    item.trigger()
+
+    assert item.isChecked() is value
 
 
 def test_left_click_toggles_the_flyout(make_tray):

@@ -88,7 +88,8 @@ class TrayController(QObject):
         parent: QObject | None = None,
     ) -> None:
         """``names`` gives the display names chosen by the user (device id → name);
-        ``set_start_with_windows`` persists the preference and raises ``OSError``."""
+        ``start_with_windows`` reads whether Windows starts the app (never raises) and
+        ``set_start_with_windows`` changes it, raising ``OSError``."""
         super().__init__(parent)
         self.service = service
         self._flyout = flyout
@@ -234,8 +235,9 @@ class TrayController(QObject):
         try:
             self._set_start_with_windows(checked)
         except OSError as error:
-            log.error("cannot save the start-with-Windows setting: %s", type(error).__name__)
-            self._start_action.setChecked(not checked)
+            log.error("cannot change the start-with-Windows entry: %s", type(error).__name__)
+        # Read back: the check mark shows what Windows will do, also after a failure.
+        self._start_action.setChecked(self._start_with_windows())
 
 
 def _escaped(text: str) -> str:

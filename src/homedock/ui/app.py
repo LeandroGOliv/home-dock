@@ -23,7 +23,7 @@ from homedock.core import (
     start_timer,
 )
 from homedock.devices import FoundDevice, scan_lan
-from homedock.storage import AppData, DeviceReload, open_app_data
+from homedock.storage import AppData, DeviceReload, StartWithWindows, open_app_data
 from homedock.ui import strings
 from homedock.ui.flyout import Flyout
 from homedock.ui.single_instance import DEFAULT_NAME, SingleInstance
@@ -52,11 +52,13 @@ class HomeDock:
         scan: Callable[[], Sequence[FoundDevice]] = scan_lan,
         in_background: InBackground | None = None,
         schedule: Schedule = start_timer,
+        start_with_windows: StartWithWindows | None = None,
     ) -> None:
         """``scan`` looks for devices on the LAN, ``in_background`` runs the reload of the
-        devices off the UI thread and ``schedule`` times the probes of the offline devices
-        (all replaceable in tests)."""
+        devices off the UI thread, ``schedule`` times the probes of the offline devices and
+        ``start_with_windows`` is the Windows ``Run`` entry (all replaceable in tests)."""
         self.data = data
+        self.start_with_windows = start_with_windows or StartWithWindows()
         self.service = service or ControlService(
             data.devices.catalog.devices, GroupBook(data.config.groups)
         )
@@ -82,8 +84,8 @@ class HomeDock:
             self.flyout,
             names=lambda: self.data.config.names,
             scenes=lambda: self.data.config.scenes,
-            start_with_windows=lambda: self.data.config.settings.start_with_windows,
-            set_start_with_windows=self._save_start_with_windows,
+            start_with_windows=self.start_with_windows.is_enabled,
+            set_start_with_windows=self.start_with_windows.set_enabled,
         )
         self.tray.quit_requested.connect(QApplication.quit)
 
@@ -97,10 +99,6 @@ class HomeDock:
         self.flyout.shutdown()
         self.flyout.close()
         self.service.shutdown()
-
-    def _save_start_with_windows(self, enabled: bool) -> None:
-        # Only the preference for now; the Windows "Run" entry comes with issue #15.
-        self._save_settings(start_with_windows=enabled)
 
     def _save_last_target(self, target: Target) -> None:
         self._save_settings(last_target=target)

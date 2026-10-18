@@ -102,3 +102,27 @@ def paint_gear(painter: QPainter, rect: QRectF, color: QColor) -> None:
     painter.drawPolygon(outline)
     painter.drawEllipse(c, outer * 0.32, outer * 0.32)
     painter.restore()
+
+
+def paint_check(painter: QPainter, rect: QRectF, color: QColor) -> None:
+    """A check mark."""
+    painter.save()
+    _stroke(painter, color)
+    w, h = rect.width(), rect.height()
+    points = [(0.2, 0.52), (0.42, 0.72), (0.8, 0.3)]
+    painter.drawPolyline(
+        QPolygonF([QPointF(rect.x() + x * w, rect.y() + y * h) for x, y in points])
+    )
+    painter.restore()
+
+
+def paint_close(painter: QPainter, rect: QRectF, color: QColor) -> None:
+    """A cross (close / cancel)."""
+    painter.save()
+    _stroke(painter, color)
+    box = rect.adjusted(
+        rect.width() * 0.25, rect.height() * 0.25, -rect.width() * 0.25, -rect.height() * 0.25
+    )
+    painter.drawLine(box.topLeft(), box.bottomRight())
+    painter.drawLine(box.topRight(), box.bottomLeft())
+    painter.restore()

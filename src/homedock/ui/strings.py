@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from homedock.devices import DeviceType
@@ -33,6 +33,17 @@ MANAGE = "Gerenciar grupos e lâmpadas"
 MANAGE_TITLE = "Grupos e lâmpadas"
 MANAGE_SOON = "Em breve: criar grupos, renomear lâmpadas e procurar lâmpadas novas."
 BACK = "Voltar"
+
+# Flyout: scenes
+SAVE_CURRENT = "+ Salvar atual"
+SCENE_NAME = "Nome da cena"
+SAVE = "Salvar"
+CANCEL = "Cancelar"
+RENAME = "Renomear"
+OVERWRITE = "Sobrescrever com o estado atual"
+DELETE = "Excluir"
+UNDO = "Desfazer"
+SAVE_FAILED = "Não foi possível salvar as cenas"
 
 SEPARATOR = " · "
 
@@ -103,3 +114,28 @@ def device_detail(groups: Sequence[str], online: bool | None) -> str:
     if online is False:
         parts.append(OFFLINE)
     return SEPARATOR.join(parts)
+
+
+def new_scene_name(taken: Iterable[str]) -> str:
+    """The suggested name of a new scene: "Cena 1", or the next number not taken."""
+    names = set(taken)
+    number = 1
+    while f"Cena {number}" in names:
+        number += 1
+    return f"Cena {number}"
+
+
+def left_out(scene: str, count: int, words: Noun) -> str:
+    """E.g. "Leitura · 1 lâmpada offline ficou de fora"."""
+    if count == 1:
+        return f"{scene}{SEPARATOR}1 {words.singular.lower()} {OFFLINE} ficou de fora"
+    return f"{scene}{SEPARATOR}{count} {words.plural.lower()} {OFFLINE} ficaram de fora"
+
+
+def nothing_saved(count: int, words: Noun) -> str:
+    """No device answered, e.g. "Lâmpadas offline · nada foi salvo"."""
+    return f"{words.singular if count == 1 else words.plural} {OFFLINE}{SEPARATOR}nada foi salvo"
+
+
+def scene_deleted(scene: str) -> str:
+    return f"Cena {scene} excluída"

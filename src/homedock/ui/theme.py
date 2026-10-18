@@ -64,6 +64,10 @@ SLIDER_THUMB = 20
 FOCUS_WIDTH = 2
 SLIDER_THUMB_DOT = 12  # the accent dot in the thumb; a bit bigger while hovered
 PANEL_GAP = 18  # between the switch, the dial and the sliders
+SECTION_GAP = 24  # between the control panel and the scenes
+SCENE_HEIGHT = 40  # a scene button; also the visible height of the scenes grid
+SCENE_GAP = 8
+EDITOR_HEIGHT = 32  # the scene name field; also the scenes header
 
 # Fonts (pixel sizes)
 FAMILIES = ["Segoe UI Variable Text", "Segoe UI"]

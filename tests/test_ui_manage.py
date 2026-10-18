@@ -569,3 +569,25 @@ def test_reopening_after_closing_on_a_manage_page_takes_the_main_page_height(mak
 
     assert home.flyout.pages.current() is home.flyout.main
     assert home.flyout.height() == main_height
+
+
+def test_saving_a_group_grows_the_page_by_its_card(make_home, qtbot):
+    home = make_home()
+    before = home.flyout.height()
+    page = open_group(home, qtbot, None)
+    page.name_field.setText("Casa")
+    click(qtbot, page.save_button)
+
+    manage = home.manage()
+    assert all(card.isVisible() for card in manage.cards)
+    assert all(row.isVisible() for row in manage.device_rows.values())
+    assert home.flyout.height() > before
+    assert manage.body.height() == manage.body.sizeHint().height()
+
+
+def test_undoing_a_delete_keeps_the_page_height(make_home, qtbot):
+    home = make_home()
+    before = home.flyout.height()
+    click(qtbot, open_group(home, qtbot, 0).delete_button)
+    click(qtbot, home.manage().notice.action)
+    assert home.flyout.height() == before

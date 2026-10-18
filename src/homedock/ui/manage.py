@@ -550,6 +550,11 @@ class ManagePage(QWidget):
                 rows.addWidget(row)
                 rows.addSpacing(theme.ITEM_GAP)
                 self.device_rows[device.id] = row
+        # Show the new rows now, not on the next event loop pass: the flyout measures the
+        # page right away and would leave them out.
+        for item in map(rows.itemAt, range(rows.count())):
+            if (widget := item.widget()) is not None:
+                widget.setVisible(not self.body.content.isHidden())
         self._sync()
         self._sync_find()
         self.body.updateGeometry()

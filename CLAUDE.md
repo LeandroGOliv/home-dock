@@ -117,6 +117,10 @@ model — never assume.
   partial dict as the full state.
 - `{20: False, 21: …, 24: …}` in one write keeps the bulb off and stores the mode/colour
   for the next power-on (verified 2026-10-17, issue #11) — how scenes restore an off bulb.
+- Discovery (`scan_lan`) only **listens** for the UDP broadcasts (ports 6666/6667/7000,
+  `poll=False`): it never opens a TCP connection, which the control service may hold. Both
+  PSBAM bulbs broadcast protocol 3.4 and are found within ~8 s (verified 2026-10-18,
+  issue #12).
 - Device I/O never blocks the UI thread (workers/threads). Group commands run **in
   parallel**. Slider and ring drags are debounced/throttled.
 - Read the real device state when the flyout opens. Offline / IP change → show status and

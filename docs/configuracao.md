@@ -78,7 +78,12 @@ O wizard cria na pasta `tuya-wizard` os arquivos `devices.json`, `tinytuya.json`
 
 1. Copie `%USERPROFILE%\tuya-wizard\devices.json` para `%APPDATA%\HomeDock\devices.json`
    (crie a pasta `HomeDock` se não existir).
-2. No HomeDock, abra **Gerenciar grupos e lâmpadas → Recarregar dispositivos**.
+2. No HomeDock, abra **Gerenciar grupos e lâmpadas → Procurar lâmpadas novas**. O
+   HomeDock lê o `devices.json` de novo e procura as lâmpadas na rede (uns 20 segundos)
+   para completar ou atualizar os IPs. Na primeira vez, se o Windows perguntar sobre o
+   firewall, permita o HomeDock (ou o Python) em **redes privadas**: a procura escuta os
+   avisos que as lâmpadas mandam na rede (portas UDP 6666, 6667 e 7000) e nunca se conecta
+   a elas.
 
 ## Testar a conexão (opcional)
 
@@ -99,7 +104,9 @@ Se o wizard rodar fora da rede de casa (ou sem o *poll*), o campo `ip` de cada
 dispositivo fica vazio. Opções, quando estiver em casa:
 
 - **Mais simples:** rode o wizard de novo em casa (passo 4) e importe de novo (passo 5).
-- **Recarregar dispositivos** no HomeDock também faz uma varredura local e completa os IPs.
+- **Procurar lâmpadas novas** no HomeDock também procura as lâmpadas na rede e completa
+  (ou atualiza) os IPs no `devices.json` — só o campo `ip` (e a versão de protocolo, quando
+  estiver vazia); o resto do arquivo fica igual.
 - **Manual:** em `%USERPROFILE%\tuya-wizard`, rode
   `uv run --no-project --with tinytuya python -m tinytuya scan`, que lista o IP e o ID de
   cada dispositivo encontrado, e preencha o campo `ip` correspondente no `devices.json`.
@@ -112,14 +119,15 @@ HomeDock não precisa redescobrir a lâmpada.
 
 ## Adicionar um dispositivo novo
 
-Não há descoberta automática de dispositivos novos — o processo é manual:
+O HomeDock não consegue cadastrar sozinho um dispositivo novo (a chave dele só vem do
+wizard) — o processo é manual:
 
 1. Pareie o dispositivo no app do celular.
 2. Rode o wizard de novo (passo 4) — as credenciais já ficam salvas no `tinytuya.json`.
 3. Importe o novo `devices.json` (passo 5).
 
-Se o HomeDock encontrar na rede um dispositivo Tuya que não está no `devices.json`, ele
-avisa que é preciso rodar o wizard de novo.
+Se **Procurar lâmpadas novas** encontrar na rede um dispositivo Tuya que não está no
+`devices.json`, o HomeDock avisa que é preciso rodar o wizard de novo.
 
 ## Resetar ou parear de novo um dispositivo
 
@@ -138,7 +146,7 @@ do celular (nas configurações do dispositivo, opções como *memória ao desli
 
 | Arquivo | Para que serve |
 |---|---|
-| `devices.json` | Cópia do arquivo do wizard. O HomeDock só lê (e, no futuro, atualiza IPs). |
+| `devices.json` | Cópia do arquivo do wizard. O HomeDock só lê — exceto os IPs (e uma versão de protocolo vazia), que **Procurar lâmpadas novas** atualiza com o que achou na rede. Renomear uma lâmpada não muda este arquivo. |
 | `config.json` | Nomes que você deu às lâmpadas, grupos, cenas e preferências (iniciar com o Windows, último alvo selecionado). Criado na primeira execução. |
 | `logs\homedock.log` | Registro de funcionamento, útil para diagnosticar problemas. Gira automaticamente (até 4 arquivos de 1 MB). |
 
@@ -155,7 +163,8 @@ do celular (nas configurações do dispositivo, opções como *memória ao desli
 | Sintoma | O que verificar |
 |---|---|
 | Wizard não encontra dispositivos / IPs vazios | Rede marcada como Privada? Lâmpadas energizadas? PC na mesma rede? Firewall liberado para o Python em redes privadas? |
-| Lâmpada aparece *offline* no HomeDock | Ela está energizada? O IP mudou (use Recarregar dispositivos ou reserve IP fixo)? |
+| Lâmpada aparece *offline* no HomeDock | Ela está energizada? O IP mudou (use **Procurar lâmpadas novas** ou reserve IP fixo)? |
+| "Não foi possível procurar na rede" | Outro programa (ex.: um `tinytuya scan` aberto) está usando as portas UDP 6666/6667/7000, ou o firewall bloqueou o HomeDock. Feche o outro programa e tente de novo. |
 | Erro de chave / dispositivo não responde após reset | A local key mudou — rode o wizard de novo e reimporte. |
 | Wizard reclama de credenciais | Confira Access ID/Secret e o Data Center (Western America → região `us`). |
 | Grupos/cenas sumiram e apareceu um `config.corrupt-….json` | O `config.json` estava corrompido. Seus dados continuam no arquivo `config.corrupt-…` (não o publique: ele contém IDs dos dispositivos). |

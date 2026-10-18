@@ -367,7 +367,7 @@ def test_the_ring_paints_the_hue_under_the_marker(qtbot):
     qtbot.addWidget(ring)
     ring.set_color(120, 100)
     image = QImage(ring.size(), QImage.Format.Format_ARGB32)
-    image.fill(theme.WINDOW)
+    image.fill(theme.colors.window)
     ring.render(image, QPoint(), QRegion(), QWidget.RenderFlag.DrawChildren)  # no background
 
     def hue(point: QPoint) -> int:
@@ -376,4 +376,5 @@ def test_the_ring_paints_the_hue_under_the_marker(qtbot):
     assert hue(at(ring, 0)) in (0, 1, 359)  # red at the top
     assert hue(at(ring, 240)) == pytest.approx(240, abs=1)
     assert image.pixelColor(at(ring, 120)).name() == "#00ff00"  # the marker's fill
-    assert image.pixelColor(at(ring, 90, 50)) == theme.WINDOW  # between the preview and the band
+    between = at(ring, 90, 50)  # between the preview and the band
+    assert image.pixelColor(between) == theme.colors.window

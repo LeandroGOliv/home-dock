@@ -216,7 +216,7 @@ class Dial(QWidget):
     def _paint_preview(self, painter: QPainter) -> None:
         centre = self._centre()
         radius = theme.DIAL_PREVIEW / 2
-        painter.setPen(QPen(theme.SURFACE_BORDER, 1))
+        painter.setPen(QPen(theme.colors.surface_border, 1))
         painter.setBrush(self._color())
         preview = QPointF(centre.x(), centre.y() - theme.DIAL_PREVIEW_OFFSET)
         painter.drawEllipse(preview, radius, radius)

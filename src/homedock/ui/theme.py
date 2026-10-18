@@ -1,34 +1,74 @@
 """Colours, sizes and fonts of the flyout, measured on the mockups in ``docs/ui`` (dark).
 
-Widgets read them from here only. Following the Windows theme and accent colour comes
-with issue #13.
+Widgets read them from here only. The colours that depend on the theme live in a
+:class:`Colors` palette; :data:`colors` is the one in use.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from PySide6.QtGui import QColor, QFont
 
-# Colours
-WINDOW = QColor("#202020")
-WINDOW_BORDER = QColor("#3A3A3A")
-SURFACE = QColor("#2B2B2B")  # selector button, target list, cards
-SURFACE_BORDER = QColor("#3A3A3A")
-HOVER = QColor("#323232")
-SELECTED = QColor("#383838")
-TEXT = QColor("#F3F3F3")
-TEXT_SECONDARY = QColor("#B3B3B3")
-ACCENT = QColor("#F2B544")
-ON_ACCENT = QColor("#1A1A1A")  # icons and text drawn over the accent colour
+
+# Colours that follow the theme
+@dataclass(frozen=True)
+class Colors:
+    """One theme's colours. Widgets read the current ones from :data:`colors` when they
+    paint, so a new palette shows on the next repaint."""
+
+    window: QColor
+    window_border: QColor
+    surface: QColor  # selector button, target list, cards
+    surface_border: QColor
+    hover: QColor
+    selected: QColor
+    text: QColor
+    text_secondary: QColor
+    accent: QColor
+    on_accent: QColor  # icons and text drawn over the accent colour
+    device_off: QColor  # ring of a device that is off or offline
+    device_online: QColor  # status of a reachable device (manage page)
+    danger: QColor  # text of a destructive action ("Excluir grupo")
+    slider_rail: QColor  # the part of a slider's track after the thumb
+    slider_thumb_fill: QColor
+    slider_thumb_border: QColor
+    focus: QColor  # the ring of a control reached with the keyboard
+
+
+DARK = Colors(
+    window=QColor("#202020"),
+    window_border=QColor("#3A3A3A"),
+    surface=QColor("#2B2B2B"),
+    surface_border=QColor("#3A3A3A"),
+    hover=QColor("#323232"),
+    selected=QColor("#383838"),
+    text=QColor("#F3F3F3"),
+    text_secondary=QColor("#B3B3B3"),
+    accent=QColor("#F2B544"),
+    on_accent=QColor("#1A1A1A"),
+    device_off=QColor("#6B6B6B"),
+    device_online=QColor("#3DD68C"),
+    danger=QColor("#FF8A80"),
+    slider_rail=QColor("#9E9E9E"),
+    slider_thumb_fill=QColor("#454545"),
+    slider_thumb_border=QColor("#5A5A5A"),
+    focus=QColor("#FFFFFF"),
+)
+
+colors = DARK
+
+
+def use(palette: Colors) -> None:
+    """Make ``palette`` the current colours (the widgets still need restyling)."""
+    global colors
+    colors = palette
+
+
+# Colours shared by every theme
 DEVICE_ON = QColor("#FF9F1C")  # dot of a device that is on
-DEVICE_OFF = QColor("#6B6B6B")  # ring of a device that is off or offline
-DEVICE_ONLINE = QColor("#3DD68C")  # status of a reachable device (manage page)
-DANGER = QColor("#FF8A80")  # text of a destructive action ("Excluir grupo")
 MARKER_BORDER = QColor("#FFFFFF")  # ring of the hue / temperature marker
 MARKER_SHADOW = QColor(0, 0, 0, 110)  # keeps the marker visible on the light whites
-SLIDER_RAIL = QColor("#9E9E9E")  # the part of a slider's track after the thumb
-SLIDER_THUMB_FILL = QColor("#454545")
-SLIDER_THUMB_BORDER = QColor("#5A5A5A")
-FOCUS = QColor("#FFFFFF")  # the ring of a control reached with the keyboard
 DISABLED_OPACITY = 0.4
 # The temperature arc, warm → neutral → cold (evenly spaced); also the tint of its preview
 TEMPERATURE_COLORS = (QColor("#FFA957"), QColor("#FFF1E0"), QColor("#C9DAFF"))

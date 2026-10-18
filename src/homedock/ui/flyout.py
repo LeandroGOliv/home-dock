@@ -425,8 +425,8 @@ class Flyout(QWidget):
     def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(theme.WINDOW_BORDER, 1))
-        painter.setBrush(theme.WINDOW)
+        painter.setPen(QPen(theme.colors.window_border, 1))
+        painter.setBrush(theme.colors.window)
         frame = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         painter.drawRoundedRect(frame, theme.WINDOW_RADIUS, theme.WINDOW_RADIUS)
         painter.end()

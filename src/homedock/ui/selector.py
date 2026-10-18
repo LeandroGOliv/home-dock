@@ -50,17 +50,17 @@ class TargetButton(PaintedButton):
         return QSize(200, theme.HEADER_HEIGHT)
 
     def paintEvent(self, _event: QPaintEvent) -> None:
-        painter = self.painter()
+        painter, colors = self.painter(), theme.colors
         frame = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        painter.setPen(QPen(theme.ACCENT if self.isChecked() else theme.SURFACE_BORDER, 1))
-        painter.setBrush(theme.HOVER if self.hovered() else theme.SURFACE)
+        painter.setPen(QPen(colors.accent if self.isChecked() else colors.surface_border, 1))
+        painter.setBrush(colors.hover if self.hovered() else colors.surface)
         painter.drawRoundedRect(frame, theme.CONTROL_RADIUS, theme.CONTROL_RADIUS)
 
         pad = theme.SPACING
         icon_top = (self.height() - theme.ICON) / 2
         chevron = QRectF(self.width() - pad - theme.ICON, icon_top, theme.ICON, theme.ICON)
         direction = Qt.Edge.TopEdge if self.isChecked() else Qt.Edge.BottomEdge
-        paint_chevron(painter, chevron, theme.TEXT, direction)
+        paint_chevron(painter, chevron, theme.colors.text, direction)
 
         title_font, caption_font = theme.font(bold=True), theme.font(theme.CAPTION)
         title_height = QFontMetrics(title_font).height()
@@ -70,7 +70,7 @@ class TargetButton(PaintedButton):
         draw_text(painter, QRectF(pad, top, width, title_height), self.text(), title_font)
         if self._subtitle:
             line = QRectF(pad, top + title_height, width, caption_height)
-            draw_text(painter, line, self._subtitle, caption_font, theme.TEXT_SECONDARY)
+            draw_text(painter, line, self._subtitle, caption_font, theme.colors.text_secondary)
         painter.end()
 
 
@@ -85,18 +85,18 @@ class PowerButton(PaintedButton):
         self.setToolTip(strings.POWER)
 
     def paintEvent(self, _event: QPaintEvent) -> None:
-        painter = self.painter()
+        painter, colors = self.painter(), theme.colors
         circle = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         if not self.isEnabled():
-            fill, border, icon = theme.SURFACE, theme.SURFACE_BORDER, theme.DEVICE_OFF
+            fill, border, icon = colors.surface, colors.surface_border, colors.device_off
         elif self.isChecked():
-            fill, border, icon = theme.ACCENT, theme.ACCENT, theme.ON_ACCENT
+            fill, border, icon = colors.accent, colors.accent, colors.on_accent
             if self.hovered():
-                fill = border = theme.ACCENT.lighter(108)
+                fill = border = colors.accent.lighter(108)
         else:
-            fill, border, icon = theme.SURFACE, theme.SURFACE_BORDER, theme.TEXT
+            fill, border, icon = colors.surface, colors.surface_border, colors.text
             if self.hovered():
-                fill = theme.SELECTED
+                fill = colors.selected
         painter.setPen(QPen(border, 1))
         painter.setBrush(fill)
         painter.drawEllipse(circle)
@@ -137,7 +137,7 @@ class TargetRow(PaintedButton):
         painter = self.painter()
         if self._selected or self.hovered():
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(theme.SELECTED if self._selected else theme.HOVER)
+            painter.setBrush(theme.colors.selected if self._selected else theme.colors.hover)
             painter.drawRoundedRect(QRectF(self.rect()), theme.ROW_RADIUS, theme.ROW_RADIUS)
 
         x = theme.ROW_PADDING
@@ -145,17 +145,17 @@ class TargetRow(PaintedButton):
         if self._selected:
             bar_width, bar_height = theme.SELECTION_BAR
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(theme.ACCENT)
+            painter.setBrush(theme.colors.accent)
             bar = QRectF(x, middle - bar_height / 2, bar_width, bar_height)
             painter.drawRoundedRect(bar, bar_width / 2, bar_width / 2)
             x += bar_width + 8
         entry = self._entry
-        title_color = theme.TEXT
+        title_color = theme.colors.text
         if entry.target.kind == TargetKind.DEVICE:
             _draw_dot(painter, QPointF(x + theme.DOT / 2, middle), entry.on)
             x += theme.DOT + 10
             if entry.online is False:
-                title_color = theme.TEXT_SECONDARY
+                title_color = theme.colors.text_secondary
 
         right = self.width() - theme.ROW_PADDING
         title_font, detail_font = theme.font(), theme.font(theme.CAPTION)
@@ -172,7 +172,7 @@ class TargetRow(PaintedButton):
             detail,
             entry.detail,
             detail_font,
-            theme.TEXT_SECONDARY,
+            theme.colors.text_secondary,
             Qt.AlignmentFlag.AlignRight,
         )
         painter.end()
@@ -191,9 +191,9 @@ class ManageLink(PaintedButton):
         self.paint_hover(painter)
         x = theme.ROW_PADDING
         icon = QRectF(x, (self.height() - theme.ICON) / 2, theme.ICON, theme.ICON)
-        paint_gear(painter, icon, theme.ACCENT)
+        paint_gear(painter, icon, theme.colors.accent)
         text = QRectF(icon.right() + 8, 0, self.width() - icon.right() - 8 - x, self.height())
-        draw_text(painter, text, self.text(), theme.font(), theme.ACCENT)
+        draw_text(painter, text, self.text(), theme.font(), theme.colors.accent)
         painter.end()
 
 
@@ -218,7 +218,6 @@ class TargetList(QFrame):
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll.setStyleSheet(_SCROLL_STYLE)
         self._scroll.viewport().setAutoFillBackground(False)
         self._content.setAutoFillBackground(False)
 
@@ -235,6 +234,17 @@ class TargetList(QFrame):
         layout.setSpacing(0)
         layout.addWidget(self._scroll)
         layout.addLayout(footer)
+        self.apply_theme()
+
+    def apply_theme(self) -> None:
+        self._scroll.setStyleSheet(f"""
+QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; }}
+QScrollBar:vertical {{ background: transparent; width: 6px; margin: 4px 1px; }}
+QScrollBar::handle:vertical {{ background: {theme.colors.device_off.name()}; border-radius: 2px;
+    min-height: 24px; }}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none; }}
+""")
 
     def set_model(self, model: TargetModel, selected: Target | None) -> None:
         shape = [(s.title, [e.target for e in s.entries]) for s in model.sections]
@@ -279,15 +289,15 @@ class TargetList(QFrame):
     def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(theme.SURFACE_BORDER, 1))
-        painter.setBrush(theme.SURFACE)
+        painter.setPen(QPen(theme.colors.surface_border, 1))
+        painter.setBrush(theme.colors.surface)
         frame = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         painter.drawRoundedRect(frame, theme.LIST_RADIUS, theme.LIST_RADIUS)
         painter.end()
 
 
 def _section_label(text: str) -> QLabel:
-    result = label(text, theme.font(theme.CAPTION), theme.TEXT_SECONDARY)
+    result = label(text, theme.font(theme.CAPTION), secondary=True)
     result.setFixedHeight(26)
     result.setContentsMargins(theme.ROW_PADDING, 0, 0, 0)
     return result
@@ -304,7 +314,7 @@ class _Divider(QWidget):
 
     def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
-        painter.setPen(QPen(theme.SURFACE_BORDER, 1))
+        painter.setPen(QPen(theme.colors.surface_border, 1))
         y = self.height() // 2
         painter.drawLine(4, y, self.width() - 5, y)
         painter.end()
@@ -316,7 +326,7 @@ def _draw_dot(painter: QPainter, centre: QPointF, on: bool) -> None:
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(theme.DEVICE_ON)
     else:
-        painter.setPen(QPen(theme.DEVICE_OFF, 1.5))
+        painter.setPen(QPen(theme.colors.device_off, 1.5))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         radius -= 0.75
     painter.drawEllipse(centre, radius, radius)
@@ -329,13 +339,3 @@ def split_row(space: float, title: int, detail: int) -> tuple[float, float]:
         return title, detail
     title_space = min(title, max(space - TEXT_GAP - detail, space / 2))
     return title_space, max(space - TEXT_GAP - title_space, 0)
-
-
-_SCROLL_STYLE = f"""
-QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; }}
-QScrollBar:vertical {{ background: transparent; width: 6px; margin: 4px 1px; }}
-QScrollBar::handle:vertical {{ background: {theme.DEVICE_OFF.name()}; border-radius: 2px;
-    min-height: 24px; }}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none; }}
-"""

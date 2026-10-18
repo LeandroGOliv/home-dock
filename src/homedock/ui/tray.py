@@ -166,6 +166,12 @@ class TrayController(QObject):
             self._scenes_menu.addAction(strings.NO_SCENES).setEnabled(False)
 
     def _on_menu_about_to_show(self) -> None:
+        devices = [d for d in self.service.devices if Capability.POWER in d.capabilities]
+        if devices != self._devices:  # devices.json was reloaded
+            self._devices = devices
+            self.menu.clear()
+            self.device_actions = {}
+            self._build_menu()
         self._fill_scenes()
         self._start_action.setChecked(self._start_with_windows())
         self._sync_devices()

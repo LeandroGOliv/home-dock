@@ -138,6 +138,28 @@ def test_a_renamed_device_shows_its_new_name_when_the_menu_opens(make_tray):
     assert device_action(tray, "b1").text() == "Luminária"
 
 
+def test_devices_reloaded_meanwhile_show_when_the_menu_opens(make_tray, executor):
+    tray = make_tray(bulb("b1", "Lâmpada 1"), bulb("b2", "Lâmpada 2"))
+    new_b1 = bulb("b1", "Lâmpada 1", state=DeviceState(power=True))
+    tray.service.replace_devices([new_b1, bulb("b3", "Lâmpada 3")])
+
+    open_menu(tray, executor)
+
+    assert labels(tray)[3:5] == ["Lâmpada 1", "Lâmpada 3"]
+    assert set(tray.device_actions) == {"b1", "b3"}
+    assert device_action(tray, "b1").isChecked()
+    device_action(tray, "b3").trigger()
+    settle(executor)
+    assert tray.service.state("b3") == DeviceState(power=True)
+
+
+def test_the_menu_is_kept_while_the_devices_stay_the_same(make_tray):
+    tray = make_tray(bulb("b1"))
+    item = device_action(tray, "b1")
+    open_menu(tray)
+    assert device_action(tray, "b1") is item
+
+
 def test_ampersands_in_names_are_shown_literally_not_as_shortcuts(make_tray):
     scene = Scene("s1", "Filme & pipoca", {})
     tray = make_tray(bulb("b1", "Sala & Cozinha"), scenes=[scene])

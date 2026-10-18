@@ -1,11 +1,12 @@
-"""Helpers for UI tests: drive the control service through a manual executor, find the point
-to click on a slider."""
+"""Helpers for UI tests: drive the control service through a manual executor, find the points
+to click on the controls."""
 
 from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication
 
 from executors import ManualExecutor
 from homedock.ui import theme
+from homedock.ui.dial_math import polar
 
 
 def settle(executor: ManualExecutor) -> None:
@@ -20,3 +21,10 @@ def slider_point(slider, value: float) -> QPoint:
     width = slider.width() - theme.SLIDER_THUMB
     span = slider.maximum() - slider.minimum()
     return QPoint(round(left + width * (value - slider.minimum()) / span), slider.height() // 2)
+
+
+def dial_point(dial, angle: float) -> QPoint:
+    """The point on the band of a dial at the compass ``angle``."""
+    radius = (theme.DIAL_SIZE - theme.DIAL_BAND) / 2
+    x, y = polar(dial.width() / 2, dial.height() / 2, radius, angle)
+    return QPoint(round(x), round(y))

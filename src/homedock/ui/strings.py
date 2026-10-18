@@ -36,7 +36,11 @@ BACK = "Voltar"
 
 SEPARATOR = " · "
 
-# Control panels: hue ring and temperature arc
+# Control panels: the bulb panel, hue ring and temperature arc
+WHITE_MODE = "Branco"
+COLOR_MODE = "Cor"
+BRIGHTNESS = "Brilho"
+SATURATION = "Saturação"
 HUE = "Cor"
 TEMPERATURE = "Temperatura do branco"
 WARM = "Quente"

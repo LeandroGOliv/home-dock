@@ -365,7 +365,7 @@ class LinkButton(PaintedButton):
     def paintEvent(self, _event: QPaintEvent) -> None:
         painter = self.painter()
         self.paint_hover(painter)
-        color = theme.colors.accent if self.isEnabled() else theme.colors.device_off
+        color = theme.colors.accent_text if self.isEnabled() else theme.colors.device_off
         draw_text(
             painter,
             QRectF(self.rect()),

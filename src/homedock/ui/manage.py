@@ -373,6 +373,7 @@ class DeviceRow(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(theme.colors.surface)
         painter.drawRoundedRect(QRectF(self.rect()), theme.CONTROL_RADIUS, theme.CONTROL_RADIUS)
+        _paint_row_border(painter, self)
         painter.end()
 
 
@@ -401,6 +402,8 @@ class MemberRow(PaintedButton):
         inset = theme.FOCUS_WIDTH / 2 if self.hasFocus() else 0
         frame = QRectF(self.rect()).adjusted(inset, inset, -inset, -inset)
         painter.drawRoundedRect(frame, theme.CONTROL_RADIUS, theme.CONTROL_RADIUS)
+        if not self.hasFocus():
+            _paint_row_border(painter, self)
 
         x = theme.ITEM_PADDING
         box = QRectF(x, (self.height() - theme.CHECKBOX) / 2, theme.CHECKBOX, theme.CHECKBOX)
@@ -796,6 +799,15 @@ class GroupPage(QWidget):
         if not self.notice.isHidden():
             self.notice.hide()
             self.layout_changed.emit()
+
+
+def _paint_row_border(painter: QPainter, row: QWidget) -> None:
+    """The hairline around a device row (only on the light theme, where its fill alone
+    barely differs from the window)."""
+    painter.setPen(QPen(theme.colors.row_border, 1))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    frame = QRectF(row.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+    painter.drawRoundedRect(frame, theme.CONTROL_RADIUS, theme.CONTROL_RADIUS)
 
 
 def _caption(text: str) -> QLabel:

@@ -191,9 +191,9 @@ class ManageLink(PaintedButton):
         self.paint_hover(painter)
         x = theme.ROW_PADDING
         icon = QRectF(x, (self.height() - theme.ICON) / 2, theme.ICON, theme.ICON)
-        paint_gear(painter, icon, theme.colors.accent)
+        paint_gear(painter, icon, theme.colors.accent_text)
         text = QRectF(icon.right() + 8, 0, self.width() - icon.right() - 8 - x, self.height())
-        draw_text(painter, text, self.text(), theme.font(), theme.colors.accent)
+        draw_text(painter, text, self.text(), theme.font(), theme.colors.accent_text)
         painter.end()
 
 

@@ -229,6 +229,9 @@ class Dial(QWidget):
         painter.setBrush(self._color())
         preview = QPointF(centre.x(), centre.y() - theme.DIAL_PREVIEW_OFFSET)
         painter.drawEllipse(preview, radius, radius)
+        painter.setPen(QPen(theme.colors.dial_outline, 1))  # a pale preview on a light window
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(preview, radius, radius)
 
         width = 2 * (RADIUS - theme.DIAL_BAND / 2)  # the hole of the band
         line = QRectF(0, 0, width, theme.BODY * 2)

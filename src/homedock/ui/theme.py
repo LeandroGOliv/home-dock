@@ -25,7 +25,8 @@ class Colors:
     selected: QColor
     text: QColor
     text_secondary: QColor
-    accent: QColor
+    accent: QColor  # fills: a selected option, a checked box, a slider
+    accent_text: QColor  # text and icons in the accent colour, such as a link
     on_accent: QColor  # icons and text drawn over the accent colour
     device_off: QColor  # ring of a device that is off or offline
     device_online: QColor  # status of a reachable device (manage page)
@@ -34,11 +35,18 @@ class Colors:
     slider_thumb_fill: QColor
     slider_thumb_border: QColor
     focus: QColor  # the ring of a control reached with the keyboard
-    dial_outline: QColor  # around the band of the dials, where it would melt into the window
+    row_border: QColor  # a device row on the manage and group pages
+    dial_outline: QColor  # around the dial band and preview, where they would melt away
 
-    def with_accent(self, accent: QColor) -> Colors:
-        """These colours with ``accent``, and text over it in black or white."""
-        return replace(self, accent=accent, on_accent=text_on(accent))
+    def with_accent(self, accent: QColor, text: QColor | None = None) -> Colors:
+        """These colours with ``accent``, ``text`` as the accent for text (``accent``
+        itself when not given) and text over the accent in black or white."""
+        return replace(
+            self,
+            accent=accent,
+            accent_text=accent if text is None else text,
+            on_accent=text_on(accent),
+        )
 
 
 DARK = Colors(
@@ -51,6 +59,7 @@ DARK = Colors(
     text=QColor("#F3F3F3"),
     text_secondary=QColor("#B3B3B3"),
     accent=QColor("#F2B544"),
+    accent_text=QColor("#F2B544"),
     on_accent=QColor("#1A1A1A"),
     device_off=QColor("#6B6B6B"),
     device_online=QColor("#3DD68C"),
@@ -59,6 +68,7 @@ DARK = Colors(
     slider_thumb_fill=QColor("#454545"),
     slider_thumb_border=QColor("#5A5A5A"),
     focus=QColor("#FFFFFF"),
+    row_border=QColor(0, 0, 0, 0),  # none in the mockups
     dial_outline=QColor(0, 0, 0, 0),
 )
 
@@ -73,6 +83,7 @@ LIGHT = Colors(
     text=QColor("#1A1A1A"),
     text_secondary=QColor("#5C5C5C"),
     accent=QColor("#0067C0"),
+    accent_text=QColor("#003E92"),
     on_accent=QColor("#FFFFFF"),
     device_off=QColor("#8A8A8A"),
     device_online=QColor("#0F7B0F"),
@@ -81,6 +92,7 @@ LIGHT = Colors(
     slider_thumb_fill=QColor("#FFFFFF"),
     slider_thumb_border=QColor("#C8C8C8"),
     focus=QColor("#1A1A1A"),
+    row_border=QColor("#E5E5E5"),
     dial_outline=QColor(0, 0, 0, 40),
 )
 

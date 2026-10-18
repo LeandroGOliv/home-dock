@@ -7,11 +7,13 @@ from PySide6.QtCore import QPoint
 from PySide6.QtGui import QColor, QImage, QPalette, QRegion
 from PySide6.QtWidgets import QScrollArea, QWidget
 
+from homedock.devices import Capability, DeviceType
+from homedock.devices.fake import FakeDevice
 from homedock.ui import theme
 from homedock.ui.controls import NameEditor, TextField
 from homedock.ui.dial_math import polar
 from homedock.ui.dials import HueRing, TemperatureArc
-from homedock.ui.manage import ScrollBody
+from homedock.ui.manage import DeviceRow, MemberRow, ScrollBody
 from homedock.ui.scenes import SceneStrip
 from homedock.ui.selector import TargetButton, TargetList
 from homedock.ui.widgets import label, restyle_all
@@ -150,6 +152,17 @@ def test_text_over_any_accent_is_readable(palette, accent):
     assert theme.contrast_ratio(colors.on_accent, colors.accent) >= 4.5
 
 
+def test_accent_text_is_the_accent_unless_given():
+    assert theme.DARK.with_accent(QColor("#40BDFF")).accent_text == QColor("#40BDFF")
+    colors = theme.LIGHT.with_accent(QColor("#0055A1"), text=QColor("#00337C"))
+    assert colors.accent_text == QColor("#00337C")
+
+
+@PALETTES
+def test_the_default_accent_text_is_readable(palette):
+    assert theme.contrast_ratio(palette.accent_text, palette.window) >= 4.5
+
+
 @PALETTES
 @pytest.mark.parametrize("background", ["window", "surface", "hover", "selected"])
 def test_text_is_readable_on_every_background(palette, background):
@@ -204,3 +217,33 @@ def test_the_dial_band_has_no_outline_on_the_dark_theme(qtbot, dial_type):
     qtbot.addWidget(dial)
     edge, middle = band_edge_and_middle(dial)
     assert abs(edge.lightness() - middle.lightness()) <= 4
+
+
+# --- rows -----------------------------------------------------------------------------------
+
+
+def make_row(row_type: str) -> QWidget:
+    device = FakeDevice("b1", "Lâmpada 1", DeviceType.RGB_BULB, {Capability.POWER})
+    return DeviceRow(device) if row_type == "device" else MemberRow(device, "Lâmpada 1", "")
+
+
+def row_edge(qtbot, row) -> QColor:
+    qtbot.addWidget(row)
+    row.resize(300, theme.ITEM_HEIGHT)
+    image = QImage(row.size(), QImage.Format.Format_ARGB32)
+    image.fill(theme.colors.window)
+    row.render(image, QPoint(), QRegion(), QWidget.RenderFlag.DrawChildren)
+    return image.pixelColor(QPoint(row.width() // 2, 0))
+
+
+@pytest.mark.parametrize("row_type", ["device", "member"])
+def test_rows_have_a_border_on_the_light_theme(qtbot, row_type):
+    """Their fill alone barely differs from a light window."""
+    theme.use(theme.LIGHT)
+    assert row_edge(qtbot, make_row(row_type)) != theme.colors.surface
+
+
+@pytest.mark.parametrize("row_type", ["device", "member"])
+def test_rows_have_no_border_on_the_dark_theme(qtbot, row_type):
+    """As in the mockups."""
+    assert row_edge(qtbot, make_row(row_type)) == theme.colors.surface

@@ -11,18 +11,19 @@ from homedock.ui.system_theme import (
     PERSONALIZE_KEY,
     SystemTheme,
     WindowsTheme,
-    accent_shade,
+    accent_shades,
     read_registry,
     read_windows_theme,
 )
 from homedock.ui.widgets import label
 
-# Windows' default blue, as AccentPalette stores it: Light3, Light2, Light1, the accent,
+# A Windows preset blue, as AccentPalette stores it: Light3, Light2, Light1, the accent,
 # Dark1, Dark2, Dark3 and one unused entry, 4 bytes (R, G, B, unused) each.
 DEFAULT_PALETTE = bytes.fromhex(
     "9CEBFF00 40BDFF00 007FDC00 0063B100 0055A100 00337C00 00145A00 00CC6A00"
 )
 BLUE_ON_DARK, BLUE_ON_LIGHT = QColor("#40BDFF"), QColor("#0055A1")
+TEXT_ON_DARK, TEXT_ON_LIGHT = QColor("#9CEBFF"), QColor("#00337C")
 
 
 def registry(**values: object):
@@ -43,24 +44,24 @@ def registry(**values: object):
 # --- the registry -------------------------------------------------------------------------
 
 
-def test_the_flyouts_use_the_second_lightest_shade_on_dark():
-    assert accent_shade(DEFAULT_PALETTE, light=False) == BLUE_ON_DARK
+def test_on_dark_the_flyouts_fill_with_light2_and_write_with_light3():
+    assert accent_shades(DEFAULT_PALETTE, light=False) == (BLUE_ON_DARK, TEXT_ON_DARK)
 
 
-def test_the_flyouts_use_the_first_dark_shade_on_light():
-    assert accent_shade(DEFAULT_PALETTE, light=True) == BLUE_ON_LIGHT
+def test_on_light_the_flyouts_fill_with_dark1_and_write_with_dark2():
+    assert accent_shades(DEFAULT_PALETTE, light=True) == (BLUE_ON_LIGHT, TEXT_ON_LIGHT)
 
 
 @pytest.mark.parametrize("value", [None, b"", DEFAULT_PALETTE[:16], 7, "0063B1"])
 def test_a_missing_or_odd_palette_gives_no_accent(value):
-    assert accent_shade(value, light=False) is None
+    assert accent_shades(value, light=False) is None
 
 
 def test_the_windows_mode_decides_light_or_dark():
     light = read_windows_theme(registry(SystemUsesLightTheme=1, AccentPalette=DEFAULT_PALETTE))
-    assert light == WindowsTheme(light=True, accent=BLUE_ON_LIGHT)
+    assert light == WindowsTheme(light=True, accent=BLUE_ON_LIGHT, accent_text=TEXT_ON_LIGHT)
     dark = read_windows_theme(registry(SystemUsesLightTheme=0, AccentPalette=DEFAULT_PALETTE))
-    assert dark == WindowsTheme(light=False, accent=BLUE_ON_DARK)
+    assert dark == WindowsTheme(light=False, accent=BLUE_ON_DARK, accent_text=TEXT_ON_DARK)
 
 
 def test_the_app_mode_is_ignored():
@@ -71,7 +72,8 @@ def test_the_app_mode_is_ignored():
 
 
 def test_without_registry_values_the_theme_is_dark_and_the_accent_unknown():
-    assert read_windows_theme(registry()) == WindowsTheme(light=False, accent=None)
+    expected = WindowsTheme(light=False, accent=None, accent_text=None)
+    assert read_windows_theme(registry()) == expected
 
 
 def test_reading_a_missing_registry_value_gives_none():
@@ -83,10 +85,11 @@ def test_reading_a_missing_registry_value_gives_none():
 
 class FakeWindows:
     def __init__(self, light: bool = False, accent: str | None = "#40BDFF") -> None:
-        self.theme = WindowsTheme(light, QColor(accent) if accent else None)
+        self.set(light, accent)
 
-    def set(self, light: bool, accent: str | None) -> None:
-        self.theme = WindowsTheme(light, QColor(accent) if accent else None)
+    def set(self, light: bool, accent: str | None, text: str | None = None) -> None:
+        color = QColor(accent) if accent else None
+        self.theme = WindowsTheme(light, color, QColor(text) if text else color)
 
     def read(self) -> WindowsTheme:
         return self.theme
@@ -174,3 +177,12 @@ def test_after_stop_windows_changes_are_ignored(follow):
     windows_changed_theme()
 
     assert theme.colors == theme.DARK.with_accent(QColor("#40BDFF"))
+
+
+def test_the_accent_text_shade_is_followed(follow, qtbot):
+    windows = FakeWindows(light=True, accent="#0055A1")
+    system_theme = follow(windows)
+    windows.set(light=True, accent="#0055A1", text="#00337C")
+    with qtbot.waitSignal(system_theme.changed, timeout=1000):
+        windows_changed_theme()
+    assert theme.colors.accent_text == QColor("#00337C")

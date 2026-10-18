@@ -232,8 +232,22 @@ def test_the_flyout_shows_the_names_and_groups_of_the_config(qtbot, data, execut
     home.close()
 
 
+def tray_scenes(home) -> list[str]:
+    home.tray.menu.aboutToShow.emit()
+    scenes = next(a for a in home.tray.menu.actions() if a.text() == strings.SCENES).menu()
+    return [a.text() for a in scenes.actions()]
+
+
 def test_scenes_saved_in_the_flyout_persist_and_show_in_the_tray(qtbot, data, executor):
-    state = DeviceState(power=True, brightness=40)
+    from homedock.devices import Color, WorkMode
+
+    state = DeviceState(
+        power=True,
+        work_mode=WorkMode.COLOR,
+        brightness=40,
+        color_hsv=Color(240, 90),
+        color_temperature=30,
+    )
     bulb = FakeDevice("b1", "Abajur", DeviceType.RGB_BULB, frozenset(Capability), state=state)
     home = make_home(data, executor, bulb)
     home.flyout.open()
@@ -244,9 +258,7 @@ def test_scenes_saved_in_the_flyout_persist_and_show_in_the_tray(qtbot, data, ex
     section.editor.save_button.click()
     settle(executor)
 
-    home.tray.menu.aboutToShow.emit()
-    scenes = next(a for a in home.tray.menu.actions() if a.text() == strings.SCENES).menu()
-    assert [a.text() for a in scenes.actions()] == ["Leitura"]
+    assert tray_scenes(home) == ["Leitura"]
     home.close()
 
     again = open_app_data(data.paths)  # the next start
@@ -265,3 +277,22 @@ def test_left_click_on_the_tray_icon_opens_the_flyout(qtbot, data, executor):
     assert home.flyout.isVisible()
     home.close()
     assert not home.flyout.isVisible()
+
+
+def test_scenes_renamed_or_deleted_in_the_flyout_persist_and_leave_the_tray(qtbot, data, executor):
+    from homedock.core import Scene
+    from homedock.storage import Config
+
+    data.save(Config(scenes=(Scene("s1", "Leitura", {}), Scene("s2", "Filme", {}))))
+    home = make_home(data, executor)
+    home.flyout.open()
+    section = home.flyout.main.scenes
+
+    section._start_rename(section.grid.scenes()[0])
+    section.editor.field.setText("Ler")
+    section.editor.save_button.click()
+    section._delete(section.grid.scenes()[1])
+
+    assert tray_scenes(home) == ["Ler"]
+    home.close()
+    assert [s.name for s in open_app_data(data.paths).config.scenes] == ["Ler"]

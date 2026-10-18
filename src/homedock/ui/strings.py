@@ -138,4 +138,5 @@ def nothing_saved(count: int, words: Noun) -> str:
 
 
 def scene_deleted(scene: str) -> str:
-    return f"Cena {scene} excluída"
+    """E.g. "“Cena 1” excluída" (quoted: default names already start with "Cena")."""
+    return f"“{scene}” excluída"

@@ -667,6 +667,16 @@ def test_save_current_saves_the_selected_target(home, executor, qtbot):
     assert set(saved.devices) == {b3.id}
 
 
+def test_choosing_an_empty_group_disables_save_current(make_flyout, qtbot):
+    flyout = make_flyout(bulb("b1"), groups=[Group("g1", "Vazio", ())])
+    flyout.open()
+    assert flyout.main.scenes.save_link.isEnabled()
+
+    choose(flyout, Target.group("g1"), qtbot)
+
+    assert not flyout.main.scenes.save_link.isEnabled()
+
+
 def test_escape_in_the_name_field_cancels_it_and_keeps_the_flyout_open(home, qtbot):
     flyout, _ = home()
     flyout.open()

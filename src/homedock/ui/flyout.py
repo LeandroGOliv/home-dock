@@ -133,7 +133,8 @@ class MainPage(QWidget):
         layout.addLayout(header)
         layout.addWidget(self.target_list)
         layout.addWidget(self._content)
-        layout.addSpacing(theme.SECTION_GAP - layout.spacing())
+        # The gap belongs to the scenes, so it goes away with them while the list is open.
+        self.scenes.setContentsMargins(0, theme.SECTION_GAP - layout.spacing(), 0, 0)
         layout.addWidget(self.scenes)
 
         self.target_button.toggled.connect(self._show_list)

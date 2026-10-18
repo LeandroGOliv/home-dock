@@ -3,8 +3,8 @@
 from enum import StrEnum
 
 import pytest
-from PySide6.QtCore import QPoint, QPointF, Qt
-from PySide6.QtGui import QContextMenuEvent, QWheelEvent
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QContextMenuEvent, QEnterEvent, QFocusEvent, QWheelEvent
 from PySide6.QtWidgets import QApplication, QLabel
 
 from executors import ManualExecutor
@@ -13,7 +13,7 @@ from homedock.devices import Capability, Color, DeviceState, DeviceType, WorkMod
 from homedock.devices.fake import FakeDevice
 from homedock.ui import strings, theme
 from homedock.ui.bridge import ServiceBridge
-from homedock.ui.scenes import COLUMNS, ScenesSection
+from homedock.ui.scenes import NOTICE_DURATION, ScenesSection
 from ui_helpers import settle
 
 BULB = frozenset(Capability)
@@ -98,8 +98,10 @@ class Harness:
         return {item.text(): item for item in menu.actions()}
 
     def choose(self, name: str, item: str) -> None:
-        self.menu(name)[item].trigger()
-        self.section.menu.close()
+        items = self.menu(name)
+        menu = self.section.menu
+        items[item].trigger()
+        menu.close()
 
     def type_name(self, qtbot, text: str) -> None:
         field = self.section.editor.field
@@ -159,7 +161,6 @@ def test_the_saved_scenes_show_in_a_grid_of_three_columns(make_section):
     harness = make_section(bulb("b1"), scenes=scenes)
 
     assert harness.names() == [s.name for s in scenes]
-    assert COLUMNS == 3
     first, second, third, fourth = (harness.grid.buttons[i] for i in range(4))
     assert first.y() == second.y() == third.y() < fourth.y()
     assert first.x() == fourth.x() < second.x() < third.x()
@@ -258,6 +259,7 @@ def test_the_notice_hides_by_itself(make_section, qtbot):
     harness.click(qtbot, "Filme")
     harness.settle()
     assert harness.section.notice.timer.isActive()
+    assert harness.section.notice.timer.interval() == NOTICE_DURATION
 
     harness.section.notice.timer.timeout.emit()
 
@@ -455,7 +457,7 @@ def test_delete_removes_the_scene_and_offers_to_undo(make_section, qtbot):
 
     assert harness.names() == ["Leitura", "Relaxar"]
     assert [s.id for s in harness.store.scenes] == ["s1", "s3"]
-    assert harness.notice() == "Cena Filme excluída"
+    assert harness.notice() == strings.scene_deleted("Filme") == "“Filme” excluída"
     undo = harness.section.notice.action
     assert undo.isVisible() and undo.text() == strings.UNDO
 
@@ -501,3 +503,155 @@ def test_notices_agree_with_the_number_of_devices():
     assert strings.left_out("Filme", 2, bulbs) == "Filme · 2 lâmpadas offline ficaram de fora"
     assert strings.nothing_saved(1, bulbs) == "Lâmpada offline · nada foi salvo"
     assert strings.nothing_saved(3, strings.noun(None)) == "Dispositivos offline · nada foi salvo"
+
+
+def test_the_notice_stays_while_the_pointer_is_on_it(make_section, qtbot):
+    harness = make_section(bulb("b1"), scenes=[scene("s1", "Filme")])
+    harness.choose("Filme", strings.DELETE)
+    notice = harness.section.notice
+    centre = QPointF(notice.rect().center())
+
+    QApplication.sendEvent(notice, QEnterEvent(centre, centre, notice.mapToGlobal(centre)))
+    assert not notice.timer.isActive()
+
+    QApplication.sendEvent(notice, QEvent(QEvent.Type.Leave))
+    assert notice.timer.isActive()
+
+
+def test_saving_is_disabled_while_a_save_reads_the_devices(make_section, qtbot):
+    harness = make_section(bulb("b1"), scenes=[scene("s1", "Leitura")])
+
+    qtbot.mouseClick(harness.section.save_link, Qt.MouseButton.LeftButton)
+    harness.type_name(qtbot, "Nova")
+
+    assert not harness.section.save_link.isEnabled()
+    assert not harness.menu("Leitura")[strings.OVERWRITE].isEnabled()
+    harness.section.menu.close()
+    harness.settle()
+    assert harness.section.save_link.isEnabled()
+
+
+def test_escape_on_the_editor_buttons_cancels_without_reaching_the_flyout(make_section, qtbot):
+    harness = make_section(bulb("b1"))
+    qtbot.mouseClick(harness.section.save_link, Qt.MouseButton.LeftButton)
+
+    qtbot.keyClick(harness.section.editor.save_button, Qt.Key.Key_Escape)
+
+    assert not harness.section.editing()
+
+
+def test_the_name_field_has_no_english_context_menu(make_section):
+    field = make_section(bulb("b1")).section.editor.field
+    assert field.contextMenuPolicy() == Qt.ContextMenuPolicy.NoContextMenu
+
+
+def test_closing_the_name_field_keeps_the_focus_in_the_section(make_section, qtbot):
+    harness = make_section(bulb("b1"), scenes=[scene("s1", "Leitura")])
+    qtbot.mouseClick(harness.section.save_link, Qt.MouseButton.LeftButton)
+
+    qtbot.keyClick(harness.section.editor.field, Qt.Key.Key_Escape)
+    assert harness.section.save_link.hasFocus()
+
+    harness.choose("Leitura", strings.RENAME)
+    harness.type_name(qtbot, "Ler")
+    assert harness.button("Ler").hasFocus()
+
+
+def test_deleting_a_focused_scene_moves_the_focus_to_its_neighbour(make_section):
+    scenes = [scene("s1", "Leitura"), scene("s2", "Filme"), scene("s3", "Relaxar")]
+    harness = make_section(bulb("b1"), scenes=scenes)
+    harness.button("Filme").setFocus(Qt.FocusReason.TabFocusReason)
+
+    harness.choose("Filme", strings.DELETE)
+    QApplication.processEvents()
+
+    assert harness.button("Relaxar").hasFocus()
+
+
+def test_the_focus_ring_comes_back_after_the_scene_menu(make_section):
+    harness = make_section(bulb("b1"), scenes=[scene("s1", "Leitura")])
+    button = harness.button("Leitura")
+    button.setFocus(Qt.FocusReason.TabFocusReason)
+    assert button.focus_shown()
+
+    for kind in (QEvent.Type.FocusOut, QEvent.Type.FocusIn):  # the menu opens and closes
+        QApplication.sendEvent(button, QFocusEvent(kind, Qt.FocusReason.PopupFocusReason))
+
+    assert button.focus_shown()
+
+
+def test_the_grid_itself_takes_no_focus(make_section):
+    grid = make_section(bulb("b1")).grid
+    assert grid.focusPolicy() == Qt.FocusPolicy.NoFocus
+
+
+def test_reload_shows_the_first_row_again(make_section):
+    harness = make_section(bulb("b1"), scenes=[scene(f"s{n}", f"C{n}") for n in range(6)])
+    harness.grid.show_row(1)
+
+    harness.section.reload()
+
+    assert harness.grid.first_row() == 0
+
+
+def test_the_menu_is_forgotten_once_closed(make_section):
+    harness = make_section(bulb("b1"), scenes=[scene("s1", "Leitura")])
+    harness.menu("Leitura")
+
+    harness.section.menu.close()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+    assert harness.section.menu is None
+
+
+def test_overwrite_when_no_device_answers_keeps_the_scene(make_section):
+    harness = make_section(bulb("b1", online=False), scenes=[scene("s1", "Leitura", b1=READING)])
+
+    harness.choose("Leitura", strings.OVERWRITE)
+    harness.settle()
+
+    assert harness.store.scenes == (scene("s1", "Leitura", b1=READING),)
+    assert harness.notice() == "Lâmpada offline · nada foi salvo"
+
+
+def test_overwrite_saves_only_the_devices_that_answered_and_says_so(make_section):
+    # Like "Salvar atual": the scene becomes the current state of the target's devices.
+    b1, b2 = bulb("b1", MOVIE), bulb("b2", online=False)
+    harness = make_section(b1, b2, scenes=[scene("s1", "Leitura", b1=READING, b2=READING)])
+
+    harness.choose("Leitura", strings.OVERWRITE)
+    harness.settle()
+
+    assert harness.store.scenes == (scene("s1", "Leitura", b1=MOVIE),)
+    assert harness.notice() == "Leitura · 1 lâmpada offline ficou de fora"
+
+
+def test_overwriting_a_scene_deleted_meanwhile_does_not_bring_it_back(make_section):
+    harness = make_section(bulb("b1"), scenes=[scene("s1", "Leitura"), scene("s2", "Filme")])
+
+    harness.choose("Leitura", strings.OVERWRITE)
+    harness.store.scenes = (scene("s2", "Filme"),)  # deleted before the bulb answered
+    harness.settle()
+
+    assert harness.store.scenes == (scene("s2", "Filme"),)
+
+
+def test_a_failed_rename_keeps_the_old_name(make_section, qtbot):
+    harness = make_section(bulb("b1"), scenes=[scene("s1", "Leitura")], fail=True)
+
+    harness.choose("Leitura", strings.RENAME)
+    harness.type_name(qtbot, "Ler")
+
+    assert harness.names() == ["Leitura"]
+    assert harness.notice() == strings.SAVE_FAILED
+
+
+def test_a_device_removed_since_the_scene_was_saved_is_ignored(make_section, qtbot):
+    b1 = bulb("b1")
+    harness = make_section(b1, scenes=[scene("s1", "Filme", b1=MOVIE, gone=READING)])
+
+    harness.click(qtbot, "Filme")
+    harness.settle()
+
+    assert b1.state == MOVIE
+    assert harness.notice() is None

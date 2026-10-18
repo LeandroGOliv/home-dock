@@ -15,9 +15,10 @@ from concurrent.futures import Future
 from functools import partial
 from typing import Any
 
-from PySide6.QtCore import QPoint, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QContextMenuEvent,
+    QEnterEvent,
     QFocusEvent,
     QFontMetrics,
     QKeyEvent,
@@ -27,6 +28,7 @@ from PySide6.QtGui import (
     QWheelEvent,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -53,6 +55,8 @@ NOTICE_DURATION = 6000  # milliseconds a notice stays
 MAX_NAME = 40
 WHEEL_NOTCH = 120  # angle delta of one wheel notch
 LINK_PADDING = 6
+# Focus that comes back after a popup (the scene menu) or a window switch keeps its ring.
+_FOCUS_RETURNS = (Qt.FocusReason.PopupFocusReason, Qt.FocusReason.ActiveWindowFocusReason)
 
 
 class SceneButton(PaintedButton):
@@ -82,13 +86,15 @@ class SceneButton(PaintedButton):
 
     def focusInEvent(self, event: QFocusEvent) -> None:
         keyboard = (Qt.FocusReason.TabFocusReason, Qt.FocusReason.BacktabFocusReason)
-        self._focus_shown = event.reason() in keyboard  # not for a click, like Windows
+        if event.reason() not in _FOCUS_RETURNS:
+            self._focus_shown = event.reason() in keyboard  # not for a click, like Windows
         self.update()
         self.focused.emit()
         super().focusInEvent(event)
 
     def focusOutEvent(self, event: QFocusEvent) -> None:
-        self._focus_shown = False
+        if event.reason() not in _FOCUS_RETURNS:
+            self._focus_shown = False
         self.update()
         super().focusOutEvent(event)
 
@@ -123,8 +129,8 @@ class SceneGrid(QScrollArea):
         super().__init__(parent)
         self.buttons: list[SceneButton] = []
         self._wheel = 0  # wheel movement not yet turned into a row
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # the buttons take the focus
         content = QWidget()
-        content.setAutoFillBackground(False)
         self._grid = QGridLayout(content)
         self._grid.setContentsMargins(0, 0, 0, 0)
         self._grid.setSpacing(theme.SCENE_GAP)
@@ -213,7 +219,8 @@ class LinkButton(PaintedButton):
 
     def sizeHint(self) -> QSize:
         metrics = QFontMetrics(theme.font())
-        return QSize(metrics.horizontalAdvance(self.text()) + 2 * LINK_PADDING, 28)
+        width = metrics.horizontalAdvance(self.text()) + 2 * LINK_PADDING
+        return QSize(width, theme.LINK_HEIGHT)
 
     def paintEvent(self, _event: QPaintEvent) -> None:
         painter = self.painter()
@@ -267,7 +274,8 @@ class NameField(QLineEdit):
 
 
 class NameEditor(QWidget):
-    """The inline field for a scene name: Enter or ✓ accepts it, Esc or ✕ cancels."""
+    """The inline field for a scene name: Enter or ✓ accepts it, Esc or ✕ cancels (Esc
+    never reaches the flyout, which would close)."""
 
     accepted = Signal(str)
     cancelled = Signal()
@@ -281,6 +289,8 @@ class NameEditor(QWidget):
         self.field.setPlaceholderText(strings.SCENE_NAME)
         self.field.setAccessibleName(strings.SCENE_NAME)
         self.field.setStyleSheet(_FIELD_STYLE)
+        # Qt's own menu (Undo, Cut, Copy...) would be in English: no translation is loaded.
+        self.field.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         palette = self.field.palette()
         palette.setColor(QPalette.ColorRole.PlaceholderText, theme.TEXT_SECONDARY)
         self.field.setPalette(palette)
@@ -289,7 +299,7 @@ class NameEditor(QWidget):
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(theme.EDITOR_GAP)
         layout.addWidget(self.field, 1)
         layout.addWidget(self.save_button)
         layout.addWidget(self.cancel_button)
@@ -307,6 +317,12 @@ class NameEditor(QWidget):
         self._sync()
         self.field.setFocus(Qt.FocusReason.OtherFocusReason)
 
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Escape:  # e.g. on ✓ or ✕
+            self.cancelled.emit()
+            return
+        super().keyPressEvent(event)
+
     def _sync(self) -> None:
         self.save_button.setEnabled(bool(self.field.text().strip()))
 
@@ -317,7 +333,8 @@ class NameEditor(QWidget):
 
 
 class Notice(QWidget):
-    """A discreet line of text with an optional action link; it hides by itself."""
+    """A discreet line of text with an optional action link. It hides by itself, but not
+    under the pointer: the flyout would shrink while the user reaches for the action."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -345,6 +362,15 @@ class Notice(QWidget):
             self.action.updateGeometry()
         self._callback = action[1] if action is not None else None
         self.timer.start()
+
+    def enterEvent(self, event: QEnterEvent) -> None:
+        self.timer.stop()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event: QEvent) -> None:
+        if self.isVisible():
+            self.timer.start()
+        super().leaveEvent(event)
 
     def _act(self) -> None:
         if self._callback is not None:
@@ -377,6 +403,7 @@ class ScenesSection(QWidget):
         self._scenes = scenes
         self._save_scenes = save_scenes
         self._renaming: Scene | None = None  # None: the name field names a new scene
+        self._capturing = 0  # reads for "Salvar atual" / "Sobrescrever" still running
         self.menu: QMenu | None = None
 
         self.title = label(strings.SCENES, theme.font(), theme.TEXT)
@@ -416,10 +443,12 @@ class ScenesSection(QWidget):
         self._close_editor()
         self._hide_notice()
         self.grid.set_scenes(self._scenes())
+        self.grid.show_row(0)
         self.update_actions()
 
     def update_actions(self) -> None:
-        """Saving needs a target with devices."""
+        """Saving needs a target with devices and no other save running (a second click
+        meanwhile would save the same suggested name twice)."""
         self.save_link.setEnabled(self._can_capture())
 
     def editing(self) -> bool:
@@ -441,11 +470,11 @@ class ScenesSection(QWidget):
 
     def _on_name(self, name: str) -> None:
         renaming = self._renaming
+        if renaming is not None:  # before closing, so the focus goes to the renamed button
+            self._change(lambda book: book.rename(renaming.id, name))
         self._close_editor()
         if renaming is None:
             self._capture(name, partial(self._create, name))
-        else:
-            self._change(lambda book: book.rename(renaming.id, name))
 
     def _overwrite(self, scene: Scene) -> None:
         self._capture(scene.name, partial(self._replace, scene))
@@ -453,7 +482,10 @@ class ScenesSection(QWidget):
     def _delete(self, scene: Scene) -> None:
         ids = [s.id for s in self._scenes()]
         index = ids.index(scene.id) if scene.id in ids else len(ids)
+        had_focus = self._button_has_focus(scene)
         if self._change(lambda book: book.delete(scene.id)):
+            if had_focus and self.grid.buttons:  # keep a keyboard user in the grid
+                self.grid.buttons[min(index, len(self.grid.buttons) - 1)].setFocus()
             undo = partial(self._undo_delete, scene, index)
             self._notify(strings.scene_deleted(scene.name), (strings.UNDO, undo))
 
@@ -470,8 +502,13 @@ class ScenesSection(QWidget):
         overwrite.setEnabled(self._can_capture())
         overwrite.triggered.connect(partial(self._overwrite, scene))
         menu.addAction(strings.DELETE).triggered.connect(partial(self._delete, scene))
+        menu.destroyed.connect(partial(self._forget_menu, menu))
         self.menu = menu
         menu.popup(position)
+
+    def _forget_menu(self, menu: QMenu) -> None:
+        if self.menu is menu:
+            self.menu = None
 
     # --- editor and notice --------------------------------------------------------------------
 
@@ -480,7 +517,15 @@ class ScenesSection(QWidget):
         self.editor.start(text)
 
     def _close_editor(self) -> None:
+        typing = self.editor.isAncestorOf(QApplication.focusWidget())
         self._top.setCurrentIndex(0)
+        if typing:  # the focus would be lost with the hidden field
+            renamed = self._renaming
+            buttons = (b for b in self.grid.buttons if renamed and b.scene.id == renamed.id)
+            next(buttons, self.save_link).setFocus()
+
+    def _button_has_focus(self, scene: Scene) -> bool:
+        return any(b.scene.id == scene.id and b.hasFocus() for b in self.grid.buttons)
 
     def _notify(self, text: str, action: tuple[str, Callable[[], object]] | None = None) -> None:
         self.notice.set_message(text, action)
@@ -497,7 +542,9 @@ class ScenesSection(QWidget):
 
     def _can_capture(self) -> bool:
         target = self._target()
-        return target is not None and bool(self.service.members(target))
+        if self._capturing or target is None:
+            return False
+        return bool(self.service.members(target))
 
     def _capture(self, name: str, store: Callable[[dict[str, DeviceState]], bool]) -> None:
         """Read the target's devices, then ``store`` what answered."""
@@ -506,6 +553,8 @@ class ScenesSection(QWidget):
             return
         members = [d.id for d in self.service.members(target)]
         future = self.service.capture(target)
+        self._capturing += 1
+        self.update_actions()
         self._bridge.when_done(future, partial(self._on_captured, name, members, store))
 
     def _on_captured(
@@ -515,6 +564,8 @@ class ScenesSection(QWidget):
         store: Callable[[dict[str, DeviceState]], bool],
         future: Future[dict[str, DeviceState]],
     ) -> None:
+        self._capturing -= 1
+        self.update_actions()
         snapshot = _outcome(future)
         if snapshot is None:
             return
@@ -577,7 +628,8 @@ _ROW_STEP = theme.SCENE_HEIGHT + theme.SCENE_GAP
 
 _SCROLL_STYLE = f"""
 QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; }}
-QScrollBar:vertical {{ background: transparent; width: 6px; margin: 2px 0 2px 2px; }}
+QScrollBar:vertical {{ background: transparent; width: {theme.SCROLLBAR_WIDTH}px;
+    margin: 2px 0 2px 2px; }}
 QScrollBar::handle:vertical {{ background: {theme.DEVICE_OFF.name()}; border-radius: 2px;
     min-height: 12px; }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
@@ -587,7 +639,8 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none
 _FIELD_STYLE = f"""
 QLineEdit {{
     background: {theme.SURFACE.name()}; color: {theme.TEXT.name()};
-    border: 1px solid {theme.SURFACE_BORDER.name()}; border-radius: 4px; padding: 0 8px;
+    border: 1px solid {theme.SURFACE_BORDER.name()}; border-radius: {theme.ROW_RADIUS}px;
+    padding: 0 {theme.FIELD_PADDING}px;
     selection-background-color: {theme.ACCENT.name()}; selection-color: {theme.ON_ACCENT.name()};
 }}
 QLineEdit:focus {{ border-bottom: 2px solid {theme.ACCENT.name()}; }}

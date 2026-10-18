@@ -256,6 +256,17 @@ def test_logs_mask_device_ids(make_service, executor, caplog):
     assert "bf1234567890abcdef" not in caplog.text
 
 
+def test_only_the_failure_that_takes_a_device_offline_is_a_warning(make_service, executor, caplog):
+    service = make_service(bulb(online=False))
+    target = Target.device("bulb-1")
+    with caplog.at_level(logging.DEBUG, logger="homedock.core.control"):
+        for _ in range(3):  # e.g. the probes of an unplugged bulb, every 30 s for hours
+            done(service.refresh(target), executor)
+
+    levels = [r.levelno for r in caplog.records if "failed" in r.getMessage()]
+    assert levels == [logging.WARNING, logging.DEBUG, logging.DEBUG]
+
+
 # --- coalescing and throttling ------------------------------------------------------------
 
 

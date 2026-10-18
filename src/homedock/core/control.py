@@ -328,7 +328,9 @@ class ControlService:
             state = device.read_state() if job.changes is None else device.apply(job.changes)
             online = True
         except DeviceError as exc:
-            log.warning("device %s failed: %s", mask(device.id), exc)
+            # Once offline, a device keeps failing (probes of an unplugged bulb): not a warning.
+            level = logging.DEBUG if self.is_online(device.id) is False else logging.WARNING
+            log.log(level, "device %s failed: %s", mask(device.id), exc)
             error, online = exc, False
         except Exception as exc:
             log.exception("unexpected error on device %s", mask(device.id))

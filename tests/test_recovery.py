@@ -5,7 +5,7 @@ from concurrent.futures import Future
 
 import pytest
 
-from executors import ManualExecutor
+from executors import FakeTimers, ManualExecutor
 from homedock.core.control import ControlService
 from homedock.core.recovery import (
     FAILURES_BEFORE_SCAN,
@@ -19,43 +19,6 @@ from homedock.core.recovery import (
 from homedock.core.targets import Target
 from homedock.devices import Capability, DeviceState, DeviceType
 from homedock.devices.fake import FakeDevice
-
-
-class FakeTimer:
-    def __init__(self, delay: float, callback) -> None:
-        self.delay = delay
-        self.callback = callback
-        self.cancelled = False
-
-    def cancel(self) -> None:
-        self.cancelled = True
-
-
-class FakeTimers:
-    """Collects the scheduled callbacks; ``fire()`` runs the ones still pending."""
-
-    def __init__(self) -> None:
-        self.started: list[FakeTimer] = []
-
-    def __call__(self, delay: float, callback) -> FakeTimer:
-        timer = FakeTimer(delay, callback)
-        self.started.append(timer)
-        return timer
-
-    @property
-    def pending(self) -> list[FakeTimer]:
-        return [t for t in self.started if not t.cancelled]
-
-    @property
-    def delays(self) -> list[float]:
-        return [t.delay for t in self.pending]
-
-    def fire(self) -> None:
-        due = self.pending
-        for timer in due:
-            timer.cancelled = True  # a timer fires once
-        for timer in due:
-            timer.callback()
 
 
 class FakeClock:

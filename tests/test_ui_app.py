@@ -12,10 +12,11 @@ from PySide6.QtCore import QEvent, QTimer
 from PySide6.QtWidgets import QApplication, QMenu
 
 import homedock.ui.app as app_module
-from executors import ManualExecutor
+from executors import FakeTimers, ManualExecutor
 from homedock.__main__ import main
 from homedock.core import ControlService, GroupBook, Target
-from homedock.devices import Capability, DeviceState, DeviceType
+from homedock.core.recovery import FAILURES_BEFORE_SCAN
+from homedock.devices import Capability, DeviceState, DeviceType, FoundDevice
 from homedock.devices.fake import FakeDevice
 from homedock.storage import AppPaths, open_app_data
 from homedock.storage.logs import LOG_FILE
@@ -342,8 +343,6 @@ def test_groups_edited_in_the_flyout_persist(qtbot, data, executor):
 
 
 def test_reloading_the_devices_writes_the_ips_and_controls_the_new_devices(qtbot, tmp_path):
-    from homedock.devices import FoundDevice
-
     paths = AppPaths(tmp_path / "HomeDock")
     paths.root.mkdir()
     paths.devices_file.write_text(json.dumps([{**EXAMPLE_ENTRY, "ip": ""}]), encoding="utf-8")
@@ -370,6 +369,147 @@ def test_reloading_the_devices_writes_the_ips_and_controls_the_new_devices(qtbot
     assert json.loads(paths.devices_file.read_text(encoding="utf-8"))[0]["ip"] == "192.0.2.50"
     [device] = home.service.devices
     assert device.id == EXAMPLE_ENTRY["id"] and device is not old[0]
+
+
+# --- offline devices ------------------------------------------------------------------------
+
+
+def devices_file_with_ip(tmp_path, ip: str):
+    paths = AppPaths(tmp_path / "HomeDock")
+    paths.root.mkdir()
+    paths.devices_file.write_text(json.dumps([{**EXAMPLE_ENTRY, "ip": ip}]), encoding="utf-8")
+    return open_app_data(paths)
+
+
+def unplugged() -> FakeDevice:
+    bulb = FakeDevice(EXAMPLE_ENTRY["id"], "Abajur", DeviceType.RGB_BULB, frozenset(Capability))
+    bulb.online = False
+    return bulb
+
+
+class Background:
+    """Stands in for ``run_in_thread``: keeps the work, which the test runs itself."""
+
+    def __init__(self) -> None:
+        self.works: list = []
+
+    def __call__(self, work):
+        self.works.append(work)
+        return Future()  # never completes: no probe may reach the (fictitious) new address
+
+
+def fail_until_scan(executor: ManualExecutor, timers: FakeTimers) -> None:
+    """The offline device keeps failing its probes until the network is scanned."""
+    for _ in range(FAILURES_BEFORE_SCAN - 1):
+        timers.fire()
+        settle(executor)
+
+
+def test_a_bulb_that_keeps_failing_gets_its_new_ip_without_the_user(qtbot, tmp_path):
+    data = devices_file_with_ip(tmp_path, "192.0.2.10")
+    found = [FoundDevice(EXAMPLE_ENTRY["id"], "192.0.2.50", "3.4")]
+    executor, timers, background = ManualExecutor(), FakeTimers(), Background()
+    service = ControlService([unplugged()], executor=executor, throttle=0)
+    home = HomeDock(data, service, scan=lambda: found, in_background=background, schedule=timers)
+    old = service.devices
+
+    home.show()  # reads every device: the bulb does not answer
+    settle(executor)
+    fail_until_scan(executor, timers)
+    [work] = background.works
+    work()
+    home.close()
+
+    assert json.loads(data.paths.devices_file.read_text(encoding="utf-8"))[0]["ip"] == "192.0.2.50"
+    [device] = service.devices
+    assert device.id == EXAMPLE_ENTRY["id"] and device is not old[0]
+
+
+def test_an_automatic_scan_finding_the_same_ips_keeps_the_devices(qtbot, tmp_path):
+    data = devices_file_with_ip(tmp_path, "192.0.2.10")
+    found = [FoundDevice(EXAMPLE_ENTRY["id"], "192.0.2.10", "3.4")]
+    executor, timers, background = ManualExecutor(), FakeTimers(), Background()
+    service = ControlService([unplugged()], executor=executor, throttle=0)
+    home = HomeDock(data, service, scan=lambda: found, in_background=background, schedule=timers)
+    old = service.devices
+
+    home.show()
+    settle(executor)
+    fail_until_scan(executor, timers)
+    [work] = background.works
+    result = work()
+    home.close()
+
+    assert result.updated_ips == 0
+    assert service.devices == old  # the healthy devices keep their connections
+
+
+def test_an_automatic_scan_waits_for_a_reload_already_running(qtbot, tmp_path):
+    data = devices_file_with_ip(tmp_path, "192.0.2.10")
+    scanning, release = threading.Event(), threading.Event()
+    scans = []
+
+    def scan():
+        scans.append(True)
+        scanning.set()
+        release.wait(timeout=5)
+        return []
+
+    started = []
+
+    def in_background(work):
+        started.append(app_module.run_in_thread(work))
+        return started[-1]
+
+    executor, timers = ManualExecutor(), FakeTimers()
+    service = ControlService([unplugged()], executor=executor, throttle=0)
+    home = HomeDock(data, service, scan=scan, in_background=in_background, schedule=timers)
+    home.flyout.open()  # reads every device: the bulb does not answer
+    settle(executor)
+    home.flyout.main.manage_requested.emit()
+    home.flyout.pages.current().find_button.click()  # "Procurar lâmpadas novas"
+    assert scanning.wait(timeout=5)
+
+    fail_until_scan(executor, timers)
+    release.set()
+    manual, automatic = started
+    manual.result(timeout=5)
+    automatic.result(timeout=5)
+    home.close()
+
+    assert scans == [True]  # the automatic one found the manual scan running: no second one
+
+
+def test_a_bulb_plugged_in_again_shows_online_without_the_user(qtbot, data, executor):
+    timers = FakeTimers()
+    bulb = unplugged()
+    service = ControlService([bulb], executor=executor, throttle=0)
+    home = HomeDock(data, service, schedule=timers)
+    home.show()
+    settle(executor)
+    item = home.tray.device_actions[bulb.id]
+    assert item.text() == strings.device_label("Abajur", online=False)
+
+    bulb.online = True
+    timers.fire()
+    settle(executor)
+
+    assert item.text() == "Abajur"
+    assert timers.pending == []
+    home.close()
+
+
+def test_closing_stops_probing_the_offline_devices(qtbot, data, executor):
+    timers = FakeTimers()
+    service = ControlService([unplugged()], executor=executor, throttle=0)
+    home = HomeDock(data, service, schedule=timers)
+    home.show()
+    settle(executor)
+    assert timers.pending
+
+    home.close()
+
+    assert timers.pending == []
 
 
 def test_run_in_thread_runs_the_work_off_the_calling_thread():

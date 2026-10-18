@@ -3,7 +3,7 @@
 from homedock.core.control import CommandResult, ControlService, ServiceClosedError
 from homedock.core.events import Event
 from homedock.core.groups import Group, GroupBook
-from homedock.core.recovery import Recovery
+from homedock.core.recovery import Recovery, Schedule, start_timer
 from homedock.core.scenes import Scene, SceneBook
 from homedock.core.targets import Target, TargetKind, available_targets, resolve
 
@@ -16,9 +16,11 @@ __all__ = [
     "Recovery",
     "Scene",
     "SceneBook",
+    "Schedule",
     "ServiceClosedError",
     "Target",
     "TargetKind",
     "available_targets",
     "resolve",
+    "start_timer",
 ]

@@ -16,6 +16,11 @@ from homedock.devices.spec import DeviceSpec
 DEFAULT_PROTOCOL_VERSION = "3.4"
 # 3.2 is left out: tinytuya's constructor goes to the network to probe it.
 SUPPORTED_VERSIONS = {"3.1": 3.1, "3.3": 3.3, "3.4": 3.4, "3.5": 3.5}
+# A bulb on the LAN answers well within a second: an unplugged one should not keep a command
+# (and the device's lane) waiting long. tinytuya uses the timeout for the TCP connect and for
+# each answer, and retries a timed-out request once on a new socket.
+TIMEOUT = 3.0
+RETRIES = 1
 # Tuya devices drop idle connections; reopen instead of waiting for a dead socket to time out.
 IDLE_TIMEOUT = 20.0
 # Reading what the device sent unasked: the data is already there, so a short wait is plenty.
@@ -60,8 +65,8 @@ class TinyTuyaLink:
     def __init__(
         self,
         spec: DeviceSpec,
-        timeout: float = 5.0,
-        retries: int = 1,
+        timeout: float = TIMEOUT,
+        retries: int = RETRIES,
         idle_timeout: float = IDLE_TIMEOUT,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:

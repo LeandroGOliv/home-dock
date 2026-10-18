@@ -1,6 +1,6 @@
 """Persistence: local config, groups, scenes and device import under %APPDATA%\\HomeDock."""
 
-from homedock.storage.app_data import AppData, open_app_data
+from homedock.storage.app_data import AppData, DeviceReload, open_app_data
 from homedock.storage.config import (
     CURRENT_SCHEMA,
     Config,
@@ -10,7 +10,13 @@ from homedock.storage.config import (
     load_config,
     save_config,
 )
-from homedock.storage.devices import DeviceImport, ImportProblem, import_devices
+from homedock.storage.devices import (
+    DeviceImport,
+    ImportProblem,
+    IpUpdate,
+    import_devices,
+    update_ips,
+)
 from homedock.storage.files import AppPaths, write_atomic
 from homedock.storage.logs import setup_logging
 
@@ -21,7 +27,9 @@ __all__ = [
     "Config",
     "ConfigError",
     "DeviceImport",
+    "DeviceReload",
     "ImportProblem",
+    "IpUpdate",
     "LoadedConfig",
     "Settings",
     "import_devices",
@@ -29,5 +37,6 @@ __all__ = [
     "open_app_data",
     "save_config",
     "setup_logging",
+    "update_ips",
     "write_atomic",
 ]

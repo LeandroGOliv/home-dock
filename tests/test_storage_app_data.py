@@ -3,6 +3,7 @@ import logging
 import shutil
 from pathlib import Path
 
+from homedock.devices import DeviceError, FoundDevice
 from homedock.storage import AppPaths, Config, ImportProblem, open_app_data, save_config
 from homedock.storage.logs import LOG_FILE
 
@@ -108,3 +109,78 @@ def test_library_logs_are_masked_too(tmp_path):
     log = (paths.logs_dir / LOG_FILE).read_text(encoding="utf-8")
     assert "192.0.2.55" not in log
     assert "19…55." in log
+
+
+# --- reloading the devices ("Procurar lâmpadas novas") --------------------------------------
+
+NEW_IP = "192.0.2.77"
+
+
+def opened_with_example(tmp_path: Path, **changes):
+    paths = AppPaths(tmp_path / "HomeDock")
+    paths.root.mkdir()
+    paths.devices_file.write_text(json.dumps([{**EXAMPLE_ENTRY, **changes}]), encoding="utf-8")
+    return open_app_data(paths)
+
+
+def test_reloading_writes_the_ips_found_and_imports_the_file_again(tmp_path):
+    data = opened_with_example(tmp_path, ip="")
+    stranger = FoundDevice("bf00000000000000new1", "192.0.2.78")
+
+    result = data.reload_devices(lambda: [FoundDevice(EXAMPLE_ENTRY["id"], NEW_IP), stranger])
+
+    assert result.updated_ips == 1
+    assert result.not_imported == 1
+    assert not result.scan_failed and not result.write_failed
+    assert result.devices.problem is None
+    assert data.devices is result.devices
+    assert json.loads(data.paths.devices_file.read_text(encoding="utf-8"))[0]["ip"] == NEW_IP
+
+
+def test_a_failed_scan_still_reimports_the_file(tmp_path):
+    data = opened_with_example(tmp_path)
+    data.paths.devices_file.write_text(json.dumps([EXAMPLE_ENTRY, EXAMPLE_ENTRY]), "utf-8")
+
+    def scan():
+        raise DeviceError("network scan failed (OSError)")
+
+    result = data.reload_devices(scan)
+
+    assert result.scan_failed
+    assert len(result.devices.catalog.devices) == 2
+
+
+def test_an_unreadable_file_keeps_the_devices_imported_before(tmp_path):
+    data = opened_with_example(tmp_path)
+    before = data.devices
+    data.paths.devices_file.write_text("{oops", encoding="utf-8")
+
+    result = data.reload_devices(list)
+
+    assert result.devices.problem is ImportProblem.UNREADABLE
+    assert data.devices is before
+
+
+def test_a_file_that_cannot_be_written_is_reported(tmp_path, monkeypatch):
+    data = opened_with_example(tmp_path, ip="")
+
+    def refuse(*_args, **_kwargs):
+        raise PermissionError("read-only")
+
+    monkeypatch.setattr("homedock.storage.devices.write_atomic", refuse)
+    result = data.reload_devices(lambda: [FoundDevice(EXAMPLE_ENTRY["id"], NEW_IP)])
+
+    assert result.write_failed
+    assert result.updated_ips == 0
+    assert result.devices.problem is None
+
+
+def test_the_ids_and_ips_found_are_masked_in_the_log(tmp_path):
+    data = opened_with_example(tmp_path)
+    stranger = FoundDevice("bf00000000000000new1", NEW_IP)
+    data.reload_devices(lambda: [stranger])
+    logging.getLogger("homedock.test").warning("found %s", stranger.id)
+
+    log = (data.paths.logs_dir / LOG_FILE).read_text(encoding="utf-8")
+    assert stranger.id not in log
+    assert NEW_IP not in log

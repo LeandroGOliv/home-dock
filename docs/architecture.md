@@ -61,7 +61,13 @@ transport), `rgb_bulb.py` (bulb driver, the only place with bulb DPS), `registry
   (protocol 3.4 negotiates a session key per TCP connection), turns tinytuya `Err`
   responses and exceptions into `DeviceError` (without the library message, which may
   contain the IP) and drops/reopens the socket after any error and after 20 s idle (Tuya
-  devices drop idle connections). It accepts protocol versions 3.1/3.3/3.4/3.5 (default
+  devices drop idle connections). Timeouts are short: 3.5 s (`TIMEOUT`) for the TCP connect
+  and for each answer — just above Windows' resends of a lost connection request (1 s,
+  3 s), since tinytuya never retries a failed connect — and a request timing out on an
+  open socket is retried once on a new one (`RETRIES`). An unreachable device fails within
+  ~3.5 s (no socket open) to ~7 s (a dead persistent socket); a host refusing the
+  connection (a stale IP) fails at once. More retries would add tinytuya's 5 s pause
+  between connect attempts. It accepts protocol versions 3.1/3.3/3.4/3.5 (default
   3.4) and undoes tinytuya's sticky "one DPS per command" fallback after every write.
   tinytuya reads one message per call without matching it to the request, and a write is
   answered by an ack plus **one status push per changed DPS**, so pushes stay on the
@@ -110,10 +116,10 @@ transport), `rgb_bulb.py` (bulb driver, the only place with bulb DPS), `registry
 
 ## Core
 
-Modules: `control.py` (`ControlService`), `targets.py`, `groups.py`, `scenes.py`,
-`events.py` (Qt-free observer), `naming.py`. The core only knows the generic `Device`
-protocol; tests guard that it never mentions `RgbBulb`, imports only the public
-`homedock.devices` API and never imports `storage`, `ui` or Qt.
+Modules: `control.py` (`ControlService`), `recovery.py` (`Recovery`), `targets.py`,
+`groups.py`, `scenes.py`, `events.py` (Qt-free observer), `naming.py`. The core only knows
+the generic `Device` protocol; tests guard that it never mentions `RgbBulb`, imports only
+the public `homedock.devices` API and never imports `storage`, `ui` or Qt.
 
 - **ControlService** — owns a fixed list of devices, runs all I/O on a worker pool (never
   on the UI thread; at least one worker per device) and keeps a state/online cache.
@@ -137,7 +143,9 @@ protocol; tests guard that it never mentions `RgbBulb`, imports only the public
     injectable for deterministic tests.
   - `DeviceError` → the device is `failed` and marked offline (a later success marks it
     online again), and the jobs already queued for it fail at once instead of each
-    waiting for a timeout; any other exception is logged and fails only that job. A
+    waiting for a timeout; any other exception is logged and fails only that job. Only
+    the failure that takes a device offline is a warning in the log; the next ones (the
+    probes of an unplugged bulb) are debug, so they do not flood the rotating log. A
     partial state returned by a device is merged into the cached one. Logs mask device
     IDs.
   - `replace_devices(devices)` swaps the device list (after "Procurar lâmpadas novas"
@@ -150,6 +158,24 @@ protocol; tests guard that it never mentions `RgbBulb`, imports only the public
   - `shutdown()` fails every queued job, makes later calls fail immediately
     (`ServiceClosedError`) and stops the pool it created (an injected executor is left
     running); no future is ever left pending.
+- **Recovery** (`recovery.py`) — brings the devices that stop answering back with no
+  command from the user; generic, it only uses `online_changed` and `refresh()`.
+  - A device going offline (an I/O failed: unplugged, out of range, a new IP) is
+    **probed** — `refresh(Target.device(id))` — after `PROBE_DELAY` (2 s), then twice as
+    long after each failure, up to `MAX_PROBE_DELAY` (30 s): a device plugged in again is
+    online within 30 s, through the usual `online_changed`, so the selector, the tray menu
+    and the manage page follow. Probes go through the device's lane like any command; a
+    success (also of a user command) ends them.
+  - After `FAILURES_BEFORE_SCAN` (3) failed I/Os in a row the device may have a new IP: it
+    calls `rediscover()` (non-blocking, returns a future; the app scans the LAN, see UI
+    start-up), **one at a time and at most once per `SCAN_INTERVAL`** (5 min: an
+    unplugged device would otherwise scan forever). Devices reaching the threshold while a
+    scan runs wait for it; when it ends (also when it failed), every device still offline
+    is probed at once and the backoff goes on.
+  - Timers come from an injectable `schedule(delay, callback)` (default `start_timer`:
+    daemon `threading.Timer`s), and the clock is injectable, for deterministic tests.
+    `stop()` cancels the timers and ignores probes and scans still on their way; a removed
+    device is dropped at its next probe.
 - **Targets** — `Target.device(id)`, `Target.group(id)` or `Target.all_of(type)`: the
   **automatic group per device type** ("Todas as lâmpadas" = all `RGB_BULB` devices).
   `resolve()` returns the known members (a stale target resolves to nothing);
@@ -261,6 +287,13 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
   changes (`config.json`: last target, scenes, names, groups) and runs the device reload
   on a **daemon thread** (`run_in_thread`: quitting never waits for a scan): scan,
   `AppData.reload_devices()`, then `ControlService.replace_devices()` with the new import.
+  It starts a `Recovery` over the service (stopped first on quit) whose `rediscover` is the
+  same reload, except that the devices are replaced only when an IP changed (a scan
+  finding the same IPs — a bulb left unplugged — leaves the healthy connections alone) and
+  that it does nothing once the app is quitting. A lock keeps **one scan at a time** (they
+  share the UDP ports): an automatic reload finding one running waits for it instead of
+  scanning again; "Procurar lâmpadas novas" during an automatic one waits for it, then
+  scans.
 - **Thread bridge** — `ServiceBridge` (a `QObject` on the UI thread) re-emits the service
   events (`state_changed`, `online_changed`) as Qt signals and runs future callbacks
   (`when_done`) on the UI thread, always queued (never re-entrant). Widgets are never
@@ -492,9 +525,23 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
 
 ## Resilience
 
-- Per-device online status, timeouts, retries with backoff.
-- On repeated failure: rescan the LAN to find the device's new IP, update `devices.json`
-  IP, retry. README recommends DHCP reservations.
+- **No hang:** device I/O never runs on the UI thread; short timeouts (3.5 s, one retry) in
+  `TinyTuyaLink`; a failure marks the device offline and fails the jobs queued behind it
+  at once (`ControlService`); groups and scenes report offline members and carry on.
+- **Status:** the service's online cache (last I/O) is shown in the selector, the tray
+  menu ("· offline") and the manage page, live through `online_changed`.
+- **Back online:** `Recovery` probes each offline device with backoff (2 s → 30 s).
+- **New IP:** after 3 failures in a row, `Recovery` asks the app for a LAN scan (at most
+  every 5 min), which writes the new IP into `devices.json` and replaces the devices; the
+  device is probed at once at its new address. README recommends DHCP reservations.
+- **Trust:** the IPs come from unauthenticated UDP broadcasts, and now go into
+  `devices.json` without the user. A host on the LAN forging them can only point a device
+  at a wrong address (it stays offline until the next scan): the local key never leaves
+  the PC and the session negotiation fails without it.
+- **Known limits:** if two devices swap IPs, each probe reaches the other device (the
+  negotiation fails) until a scan runs: after 3 failures, or up to 5 min later when a
+  scan ran just before. A bulb powered off for good costs one 18 s passive scan every
+  5 min.
 
 ## Extending with a new device type
 

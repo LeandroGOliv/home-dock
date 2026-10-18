@@ -8,10 +8,20 @@ import threading
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import Future
 from dataclasses import replace
+from typing import Protocol
 
 from PySide6.QtWidgets import QApplication
 
-from homedock.core import ControlService, Group, GroupBook, Scene, Target
+from homedock.core import (
+    ControlService,
+    Group,
+    GroupBook,
+    Recovery,
+    Scene,
+    Schedule,
+    Target,
+    start_timer,
+)
 from homedock.devices import FoundDevice, scan_lan
 from homedock.storage import AppData, DeviceReload, open_app_data
 from homedock.ui import strings
@@ -25,24 +35,37 @@ log = logging.getLogger(__name__)
 INSTANCE_NAME = DEFAULT_NAME
 
 
+class InBackground(Protocol):
+    """Runs ``work`` off the UI thread (see :func:`run_in_thread`)."""
+
+    def __call__[T](self, work: Callable[[], T]) -> Future[T]: ...
+
+
 class HomeDock:
-    """The running app: the control service over the imported devices, flyout and tray."""
+    """The running app: the control service over the imported devices, the recovery of the
+    devices that stop answering, flyout and tray."""
 
     def __init__(
         self,
         data: AppData,
         service: ControlService | None = None,
         scan: Callable[[], Sequence[FoundDevice]] = scan_lan,
-        in_background: Callable[[Callable[[], DeviceReload]], Future[DeviceReload]] | None = None,
+        in_background: InBackground | None = None,
+        schedule: Schedule = start_timer,
     ) -> None:
-        """``scan`` looks for devices on the LAN and ``in_background`` runs the reload of the
-        devices off the UI thread (both replaceable in tests)."""
+        """``scan`` looks for devices on the LAN, ``in_background`` runs the reload of the
+        devices off the UI thread and ``schedule`` times the probes of the offline devices
+        (all replaceable in tests)."""
         self.data = data
         self.service = service or ControlService(
             data.devices.catalog.devices, GroupBook(data.config.groups)
         )
         self._scan = scan
         self._in_background = in_background or run_in_thread
+        self._reload_lock = threading.Lock()  # one scan at a time: they share the UDP ports
+        self._closed = False
+        self.recovery = Recovery(self.service, self._rediscover, schedule=schedule)
+        self.recovery.start()
         self.flyout = Flyout(
             self.service,
             names=lambda: self.data.config.names,
@@ -68,6 +91,8 @@ class HomeDock:
         self.tray.show()
 
     def close(self) -> None:
+        self._closed = True
+        self.recovery.stop()
         self.tray.close()
         self.flyout.shutdown()
         self.flyout.close()
@@ -94,10 +119,35 @@ class HomeDock:
 
     def _reload(self) -> DeviceReload:
         """Scan, refresh devices.json and control the devices it now lists (blocks)."""
-        result = self.data.reload_devices(self._scan)
-        if result.devices.problem is None:
-            self.service.replace_devices(result.devices.catalog.devices)
-        return result
+        with self._reload_lock:
+            result = self.data.reload_devices(self._scan)
+            if result.devices.problem is None:
+                self.service.replace_devices(result.devices.catalog.devices)
+            return result
+
+    def _rediscover(self) -> Future[DeviceReload | None]:
+        return self._in_background(self._recover)
+
+    def _recover(self) -> DeviceReload | None:
+        """The reload asked by the recovery when devices keep failing (blocks).
+
+        A reload already running scans too: wait for it instead (``None``), as after quitting.
+        The devices are replaced only when an IP changed: a scan finding the same IPs (a bulb
+        left unplugged) leaves the connections of the healthy ones alone.
+        """
+        if self._closed:
+            return None
+        if not self._reload_lock.acquire(blocking=False):
+            with self._reload_lock:
+                return None
+        try:
+            result = self.data.reload_devices(self._scan)
+            if result.devices.problem is None and result.updated_ips and not self._closed:
+                log.info("%d device IP(s) changed: controlling them there", result.updated_ips)
+                self.service.replace_devices(result.devices.catalog.devices)
+            return result
+        finally:
+            self._reload_lock.release()
 
     def _save_settings(self, **changes: object) -> None:
         config = self.data.config

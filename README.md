@@ -67,6 +67,11 @@ Se o wizard rodar fora da rede de casa, os IPs no `devices.json` ficam vazios. E
 use **Procurar lâmpadas novas**: o HomeDock procura as lâmpadas na rede e completa (ou
 atualiza) os IPs sozinho (detalhes em [docs/configuracao.md](docs/configuracao.md)).
 
+Se o roteador der outro IP a uma lâmpada, o HomeDock percebe sozinho na próxima vez que
+falar com ela (ao iniciar, ao abrir o painel ou o menu, num comando): depois de algumas
+tentativas sem resposta, ele procura as lâmpadas na rede e atualiza o IP no
+`devices.json` (em menos de um minuto, sem você fazer nada).
+
 **Recomendação:** reserve um IP fixo (reserva DHCP) para cada lâmpada no seu roteador.
 Assim o IP não muda e o HomeDock não precisa redescobri-las.
 
@@ -116,7 +121,10 @@ vir, procure na seta **^** ao lado do relógio). Abrir o app de novo não cria u
   preferência; o registro no Windows chega junto com o `HomeDock.exe`.
 
 O estado das lâmpadas é lido de novo toda vez que o menu ou o painel abre. Os comandos
-nunca travam o app, mesmo com uma lâmpada fora da tomada.
+nunca travam o app, mesmo com uma lâmpada fora da tomada: ela aparece como *offline* (no
+seletor, no menu da bandeja e em **Gerenciar grupos e lâmpadas**) e o HomeDock continua
+tentando sozinho — a cada poucos segundos no começo, depois a cada 30 segundos —, então
+ela volta a aparecer online logo depois de ligada de novo.
 
 ## Segurança
 

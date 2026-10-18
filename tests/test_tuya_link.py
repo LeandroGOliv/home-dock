@@ -81,6 +81,17 @@ def test_connects_lazily_with_a_persistent_socket():
     assert device.persistent is True
 
 
+def test_an_unreachable_device_fails_within_a_few_seconds():
+    link = TinyTuyaLink(SPEC)
+    FakeTinyTuyaDevice.responses = [{"dps": {"20": True}}]
+    link.status()
+
+    (device,) = FakeTinyTuyaDevice.instances
+    assert (device.timeout, device.retry_limit) == (tuya_module.TIMEOUT, tuya_module.RETRIES)
+    # Worst case, a dead persistent socket: the request and its one retry both time out.
+    assert tuya_module.TIMEOUT * (tuya_module.RETRIES + 1) <= 7.0
+
+
 def test_status_returns_dps_with_string_keys():
     FakeTinyTuyaDevice.responses = [{"dps": {20: True, "21": "white"}}]
     assert TinyTuyaLink(SPEC).status() == {"20": True, "21": "white"}
@@ -255,7 +266,7 @@ def test_the_normal_timeout_is_back_after_reading_unread_messages():
         device.timeout = None
         FakeTinyTuyaDevice.responses = [{"dps": {}}]
         link.status()
-        assert device.timeout == 5.0
+        assert device.timeout == tuya_module.TIMEOUT
 
 
 def test_has_unread_sees_data_waiting_on_the_socket(monkeypatch):

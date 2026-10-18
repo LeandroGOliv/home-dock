@@ -17,6 +17,7 @@ from homedock.storage import AppData, DeviceReload, open_app_data
 from homedock.ui import strings
 from homedock.ui.flyout import Flyout
 from homedock.ui.single_instance import DEFAULT_NAME, SingleInstance
+from homedock.ui.system_theme import SystemTheme
 from homedock.ui.tray import TrayController
 
 log = logging.getLogger(__name__)
@@ -128,10 +129,12 @@ def run(argv: Sequence[str] | None = None) -> int:
         app = QApplication.instance() or QApplication(list(argv or sys.argv))
         app.setApplicationName(strings.APP_NAME)
         app.setQuitOnLastWindowClosed(False)  # the flyout is not a main window
+        system_theme = SystemTheme(app)  # before any widget: they start in the right colours
         home = HomeDock(open_app_data())
         home.show()
         try:
             return app.exec()
         finally:
             home.close()
+            system_theme.stop()
             log.info("HomeDock closed")

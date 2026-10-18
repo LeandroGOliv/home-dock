@@ -27,3 +27,13 @@ def restore_root_logger():
             root.removeHandler(handler)
             handler.close()
     root.setLevel(level)
+
+
+@pytest.fixture(autouse=True)
+def restore_theme():
+    """Undo a palette chosen by a test (or by the app following the Windows theme)."""
+    from homedock.ui import theme
+
+    colors = theme.colors
+    yield
+    theme.use(colors)

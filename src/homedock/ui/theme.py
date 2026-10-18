@@ -1,34 +1,134 @@
 """Colours, sizes and fonts of the flyout, measured on the mockups in ``docs/ui`` (dark).
 
-Widgets read them from here only. Following the Windows theme and accent colour comes
-with issue #13.
+Widgets read them from here only. The colours that depend on the theme live in a
+:class:`Colors` palette; :data:`colors` is the one in use.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
+
 from PySide6.QtGui import QColor, QFont
 
-# Colours
-WINDOW = QColor("#202020")
-WINDOW_BORDER = QColor("#3A3A3A")
-SURFACE = QColor("#2B2B2B")  # selector button, target list, cards
-SURFACE_BORDER = QColor("#3A3A3A")
-HOVER = QColor("#323232")
-SELECTED = QColor("#383838")
-TEXT = QColor("#F3F3F3")
-TEXT_SECONDARY = QColor("#B3B3B3")
-ACCENT = QColor("#F2B544")
-ON_ACCENT = QColor("#1A1A1A")  # icons and text drawn over the accent colour
+
+# Colours that follow the theme
+@dataclass(frozen=True)
+class Colors:
+    """One theme's colours. Widgets read the current ones from :data:`colors` when they
+    paint, so a new palette shows on the next repaint."""
+
+    window: QColor
+    window_border: QColor
+    surface: QColor  # selector button, target list, cards
+    surface_border: QColor
+    hover: QColor
+    selected: QColor
+    text: QColor
+    text_secondary: QColor
+    accent: QColor  # fills: a selected option, a checked box, a slider
+    accent_text: QColor  # text and icons in the accent colour, such as a link
+    on_accent: QColor  # icons and text drawn over the accent colour
+    device_off: QColor  # ring of a device that is off or offline
+    device_online: QColor  # status of a reachable device (manage page)
+    danger: QColor  # text of a destructive action ("Excluir grupo")
+    slider_rail: QColor  # the part of a slider's track after the thumb
+    slider_thumb_fill: QColor
+    slider_thumb_border: QColor
+    focus: QColor  # the ring of a control reached with the keyboard
+    row_border: QColor  # a device row on the manage and group pages
+    dial_outline: QColor  # around the dial band and preview, where they would melt away
+
+    def with_accent(self, accent: QColor, text: QColor | None = None) -> Colors:
+        """These colours with ``accent``, ``text`` as the accent for text (``accent``
+        itself when not given) and text over the accent in black or white."""
+        return replace(
+            self,
+            accent=accent,
+            accent_text=accent if text is None else text,
+            on_accent=text_on(accent),
+        )
+
+
+DARK = Colors(
+    window=QColor("#202020"),
+    window_border=QColor("#3A3A3A"),
+    surface=QColor("#2B2B2B"),
+    surface_border=QColor("#3A3A3A"),
+    hover=QColor("#323232"),
+    selected=QColor("#383838"),
+    text=QColor("#F3F3F3"),
+    text_secondary=QColor("#B3B3B3"),
+    accent=QColor("#F2B544"),
+    accent_text=QColor("#F2B544"),
+    on_accent=QColor("#1A1A1A"),
+    device_off=QColor("#6B6B6B"),
+    device_online=QColor("#3DD68C"),
+    danger=QColor("#FF8A80"),
+    slider_rail=QColor("#9E9E9E"),
+    slider_thumb_fill=QColor("#454545"),
+    slider_thumb_border=QColor("#5A5A5A"),
+    focus=QColor("#FFFFFF"),
+    row_border=QColor(0, 0, 0, 0),  # none in the mockups
+    dial_outline=QColor(0, 0, 0, 0),
+)
+
+# No mockup: the light colours of the Windows 11 flyouts, checked for contrast in the tests.
+LIGHT = Colors(
+    window=QColor("#F3F3F3"),
+    window_border=QColor("#C8C8C8"),
+    surface=QColor("#FBFBFB"),
+    surface_border=QColor("#E5E5E5"),
+    hover=QColor("#EAEAEA"),
+    selected=QColor("#E0E0E0"),
+    text=QColor("#1A1A1A"),
+    text_secondary=QColor("#5C5C5C"),
+    accent=QColor("#0067C0"),
+    accent_text=QColor("#003E92"),
+    on_accent=QColor("#FFFFFF"),
+    device_off=QColor("#8A8A8A"),
+    device_online=QColor("#0F7B0F"),
+    danger=QColor("#C42B1C"),
+    slider_rail=QColor("#8A8A8A"),
+    slider_thumb_fill=QColor("#FFFFFF"),
+    slider_thumb_border=QColor("#C8C8C8"),
+    focus=QColor("#1A1A1A"),
+    row_border=QColor("#E5E5E5"),
+    dial_outline=QColor(0, 0, 0, 40),
+)
+
+colors = DARK
+
+
+def use(palette: Colors) -> None:
+    """Make ``palette`` the current colours (the widgets still need restyling)."""
+    global colors
+    colors = palette
+
+
+def contrast_ratio(first: QColor, second: QColor) -> float:
+    """The WCAG contrast ratio of two colours, from 1 (same) to 21 (black on white)."""
+    lighter, darker = sorted((_luminance(first), _luminance(second)), reverse=True)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def text_on(background: QColor) -> QColor:
+    """Black or white, whichever reads better on ``background``."""
+    black, white = QColor("#000000"), QColor("#FFFFFF")
+    return max((white, black), key=lambda text: contrast_ratio(text, background))
+
+
+def _luminance(color: QColor) -> float:
+    def linear(channel: float) -> float:
+        return channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
+
+    red, green, blue = (linear(c) for c in (color.redF(), color.greenF(), color.blueF()))
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+# Colours shared by every theme
 DEVICE_ON = QColor("#FF9F1C")  # dot of a device that is on
-DEVICE_OFF = QColor("#6B6B6B")  # ring of a device that is off or offline
-DEVICE_ONLINE = QColor("#3DD68C")  # status of a reachable device (manage page)
-DANGER = QColor("#FF8A80")  # text of a destructive action ("Excluir grupo")
 MARKER_BORDER = QColor("#FFFFFF")  # ring of the hue / temperature marker
 MARKER_SHADOW = QColor(0, 0, 0, 110)  # keeps the marker visible on the light whites
-SLIDER_RAIL = QColor("#9E9E9E")  # the part of a slider's track after the thumb
-SLIDER_THUMB_FILL = QColor("#454545")
-SLIDER_THUMB_BORDER = QColor("#5A5A5A")
-FOCUS = QColor("#FFFFFF")  # the ring of a control reached with the keyboard
 DISABLED_OPACITY = 0.4
 # The temperature arc, warm → neutral → cold (evenly spaced); also the tint of its preview
 TEMPERATURE_COLORS = (QColor("#FFA957"), QColor("#FFF1E0"), QColor("#C9DAFF"))

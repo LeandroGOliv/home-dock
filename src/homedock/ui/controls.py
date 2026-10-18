@@ -20,7 +20,6 @@ from PySide6.QtGui import (
     QMouseEvent,
     QPainter,
     QPaintEvent,
-    QPalette,
     QPen,
 )
 from PySide6.QtWidgets import (
@@ -196,7 +195,7 @@ class Slider(QWidget):
         if not self.isEnabled():
             painter.setOpacity(theme.DISABLED_OPACITY)
         if self._focus_shown:
-            painter.setPen(QPen(theme.FOCUS, theme.FOCUS_WIDTH))
+            painter.setPen(QPen(theme.colors.focus, theme.FOCUS_WIDTH))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             inset = theme.FOCUS_WIDTH / 2
             ring = QRectF(self.rect()).adjusted(inset, inset, -inset, -inset)
@@ -206,21 +205,21 @@ class Slider(QWidget):
         thumb = self._thumb_x()
         radius = theme.SLIDER_TRACK / 2
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(theme.SLIDER_RAIL)
+        painter.setBrush(theme.colors.slider_rail)
         rail = QRectF(left, middle - radius, length, theme.SLIDER_TRACK)
         painter.drawRoundedRect(rail, radius, radius)
-        painter.setBrush(theme.ACCENT)
+        painter.setBrush(theme.colors.accent)
         filled = QRectF(left, middle - radius, thumb - left, theme.SLIDER_TRACK)
         painter.drawRoundedRect(filled, radius, radius)
 
         centre = QPointF(thumb, middle)
         outer = theme.SLIDER_THUMB / 2 - 0.5
-        painter.setPen(QPen(theme.SLIDER_THUMB_BORDER, 1))
-        painter.setBrush(theme.SLIDER_THUMB_FILL)
+        painter.setPen(QPen(theme.colors.slider_thumb_border, 1))
+        painter.setBrush(theme.colors.slider_thumb_fill)
         painter.drawEllipse(centre, outer, outer)
         dot = theme.SLIDER_THUMB_DOT / 2 + (1 if self.isEnabled() and self.underMouse() else 0)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(theme.ACCENT)
+        painter.setBrush(theme.colors.accent)
         painter.drawEllipse(centre, dot, dot)
         painter.end()
 
@@ -232,8 +231,8 @@ class SliderRow(QWidget):
         self, title: str, minimum: int, maximum: int, parent: QWidget | None = None
     ) -> None:
         super().__init__(parent)
-        self.title = label(title, theme.font(), theme.TEXT)
-        self.amount = label("", theme.font(), theme.TEXT_SECONDARY)
+        self.title = label(title, theme.font())
+        self.amount = label("", theme.font(), secondary=True)
         self.slider = Slider(minimum, maximum)
         self.slider.setAccessibleName(title)
         self.slider.moved.connect(self._show_amount)
@@ -275,17 +274,17 @@ class Segment(PaintedButton):
     def paintEvent(self, _event: QPaintEvent) -> None:
         painter = self.painter()
         rect = QRectF(self.rect())
-        color = theme.TEXT
+        color = theme.colors.text
         if self.isChecked():
-            fill = theme.ACCENT.lighter(108) if self.hovered() else theme.ACCENT
+            fill = theme.colors.accent.lighter(108) if self.hovered() else theme.colors.accent
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(fill)
             painter.drawRoundedRect(rect, theme.CONTROL_RADIUS, theme.CONTROL_RADIUS)
-            color = theme.ON_ACCENT
+            color = theme.colors.on_accent
         else:
             self.paint_hover(painter)
         if not self.isEnabled():
-            color = theme.DEVICE_OFF
+            color = theme.colors.device_off
         draw_text(painter, rect, self.text(), theme.font(), color, Qt.AlignmentFlag.AlignHCenter)
         painter.end()
 
@@ -342,8 +341,8 @@ class SegmentedControl(QWidget):
     def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(theme.SURFACE_BORDER, 1))
-        painter.setBrush(theme.SURFACE)
+        painter.setPen(QPen(theme.colors.surface_border, 1))
+        painter.setBrush(theme.colors.surface)
         frame = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         radius = theme.CONTROL_RADIUS + theme.TABS_INSET / 2
         painter.drawRoundedRect(frame, radius, radius)
@@ -366,7 +365,7 @@ class LinkButton(PaintedButton):
     def paintEvent(self, _event: QPaintEvent) -> None:
         painter = self.painter()
         self.paint_hover(painter)
-        color = theme.ACCENT if self.isEnabled() else theme.DEVICE_OFF
+        color = theme.colors.accent_text if self.isEnabled() else theme.colors.device_off
         draw_text(
             painter,
             QRectF(self.rect()),
@@ -398,11 +397,38 @@ class IconButton(PaintedButton):
         self.paint_hover(painter)
         glyph = QRectF(0, 0, theme.ICON, theme.ICON)
         glyph.moveCenter(QRectF(self.rect()).center())
-        self._glyph(painter, glyph, theme.TEXT if self.isEnabled() else theme.DEVICE_OFF)
+        colors = theme.colors
+        self._glyph(painter, glyph, colors.text if self.isEnabled() else colors.device_off)
         painter.end()
 
 
-class NameField(QLineEdit):
+class TextField(QLineEdit):
+    """A one-line box for a name, in the theme's colours and without Qt's context menu."""
+
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self.setFont(theme.font())
+        self.setMaxLength(MAX_NAME)
+        # Qt's own menu (Undo, Cut, Copy...) would be in English: no translation is loaded.
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        self.apply_theme()
+
+    def apply_theme(self) -> None:
+        colors = theme.colors
+        self.setStyleSheet(f"""
+QLineEdit {{
+    background: {colors.surface.name()}; color: {colors.text.name()};
+    border: 1px solid {colors.surface_border.name()}; border-radius: {theme.ROW_RADIUS}px;
+    padding: 0 {theme.FIELD_PADDING}px;
+    selection-background-color: {colors.accent.name()};
+    selection-color: {colors.on_accent.name()};
+    placeholder-text-color: {colors.text_secondary.name()};
+}}
+QLineEdit:focus {{ border-bottom: 2px solid {colors.accent.name()}; }}
+""")
+
+
+class NameField(TextField):
     """A text box where Esc cancels (instead of closing the flyout)."""
 
     cancelled = Signal()
@@ -425,17 +451,9 @@ class NameEditor(QWidget):
     def __init__(self, placeholder: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.field = NameField()
-        self.field.setFont(theme.font())
         self.field.setFixedHeight(theme.EDITOR_HEIGHT)
-        self.field.setMaxLength(MAX_NAME)
         self.field.setPlaceholderText(placeholder)
         self.field.setAccessibleName(placeholder)
-        self.field.setStyleSheet(FIELD_STYLE)
-        # Qt's own menu (Undo, Cut, Copy...) would be in English: no translation is loaded.
-        self.field.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
-        palette = self.field.palette()
-        palette.setColor(QPalette.ColorRole.PlaceholderText, theme.TEXT_SECONDARY)
-        self.field.setPalette(palette)
         self.save_button = IconButton(paint_check, strings.SAVE)
         self.cancel_button = IconButton(paint_close, strings.CANCEL)
 
@@ -480,7 +498,7 @@ class Notice(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.text = label("", theme.font(theme.CAPTION), theme.TEXT_SECONDARY)
+        self.text = label("", theme.font(theme.CAPTION), secondary=True)
         self.text.setWordWrap(True)
         self.action = LinkButton("")
         self.action.hide()
@@ -517,14 +535,3 @@ class Notice(QWidget):
     def _act(self) -> None:
         if self._callback is not None:
             self._callback()
-
-
-FIELD_STYLE = f"""
-QLineEdit {{
-    background: {theme.SURFACE.name()}; color: {theme.TEXT.name()};
-    border: 1px solid {theme.SURFACE_BORDER.name()}; border-radius: {theme.ROW_RADIUS}px;
-    padding: 0 {theme.FIELD_PADDING}px;
-    selection-background-color: {theme.ACCENT.name()}; selection-color: {theme.ON_ACCENT.name()};
-}}
-QLineEdit:focus {{ border-bottom: 2px solid {theme.ACCENT.name()}; }}
-"""

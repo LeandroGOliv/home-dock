@@ -18,6 +18,7 @@ from PySide6.QtGui import (
     QMouseEvent,
     QPainter,
     QPainterPath,
+    QPainterPathStroker,
     QPaintEvent,
     QPen,
 )
@@ -198,6 +199,14 @@ class Dial(QWidget):
     def _band_pen(self, gradient: QConicalGradient, cap: Qt.PenCapStyle) -> QPen:
         return QPen(gradient, theme.DIAL_BAND, Qt.PenStyle.SolidLine, cap)
 
+    def _paint_outline(self, painter: QPainter, band: QPainterPath, cap: Qt.PenCapStyle) -> None:
+        """A hairline along the edges of the band (only on the light theme), where its pale
+        parts would melt into the window."""
+        stroker = QPainterPathStroker()
+        stroker.setWidth(theme.DIAL_BAND - 2)  # just inside the band: its edge is the widget's
+        stroker.setCapStyle(cap)
+        painter.strokePath(stroker.createStroke(band), QPen(theme.colors.dial_outline, 1))
+
     def _band_rect(self) -> QRectF:
         rect = QRectF(0, 0, 2 * RADIUS, 2 * RADIUS)
         rect.moveCenter(self._centre())
@@ -216,9 +225,12 @@ class Dial(QWidget):
     def _paint_preview(self, painter: QPainter) -> None:
         centre = self._centre()
         radius = theme.DIAL_PREVIEW / 2
-        painter.setPen(QPen(theme.SURFACE_BORDER, 1))
+        painter.setPen(QPen(theme.colors.surface_border, 1))
         painter.setBrush(self._color())
         preview = QPointF(centre.x(), centre.y() - theme.DIAL_PREVIEW_OFFSET)
+        painter.drawEllipse(preview, radius, radius)
+        painter.setPen(QPen(theme.colors.dial_outline, 1))  # a pale preview on a light window
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawEllipse(preview, radius, radius)
 
         width = 2 * (RADIUS - theme.DIAL_BAND / 2)  # the hole of the band
@@ -274,6 +286,9 @@ class HueRing(Dial):
         painter.setPen(self._band_pen(gradient, Qt.PenCapStyle.FlatCap))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawEllipse(self._band_rect())
+        band = QPainterPath()
+        band.addEllipse(self._band_rect())
+        self._paint_outline(painter, band, Qt.PenCapStyle.FlatCap)
 
 
 class TemperatureArc(Dial):
@@ -335,3 +350,4 @@ class TemperatureArc(Dial):
         painter.setPen(self._band_pen(gradient, Qt.PenCapStyle.RoundCap))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(path)
+        self._paint_outline(painter, path, Qt.PenCapStyle.RoundCap)

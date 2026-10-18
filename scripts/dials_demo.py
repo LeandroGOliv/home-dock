@@ -31,7 +31,7 @@ class DemoWindow(QWidget):
         super().__init__()
         self.setWindowTitle("HomeDock - dials demo")
         palette = self.palette()
-        palette.setColor(self.backgroundRole(), theme.WINDOW)
+        palette.setColor(self.backgroundRole(), theme.colors.window)
         self.setPalette(palette)
         self.setAutoFillBackground(True)
 
@@ -43,7 +43,7 @@ class DemoWindow(QWidget):
         self.saturation.setRange(0, 100)
         self.saturation.setValue(self.ring.saturation())
         self.saturation.valueChanged.connect(self.ring.set_saturation)
-        self.log = label("", theme.font(theme.CAPTION), theme.TEXT_SECONDARY)
+        self.log = label("", theme.font(theme.CAPTION), secondary=True)
 
         dials = QHBoxLayout()
         dials.setSpacing(theme.PADDING * 2)
@@ -53,7 +53,7 @@ class DemoWindow(QWidget):
         layout.setContentsMargins(*[theme.PADDING] * 4)
         layout.setSpacing(theme.SPACING)
         layout.addLayout(dials)
-        layout.addWidget(label("Saturation", theme.font(), theme.TEXT))
+        layout.addWidget(label("Saturation", theme.font()))
         layout.addWidget(self.saturation)
         layout.addWidget(self.log)
 

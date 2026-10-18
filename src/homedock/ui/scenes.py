@@ -91,17 +91,17 @@ class SceneButton(PaintedButton):
 
     def paintEvent(self, _event: QPaintEvent) -> None:
         painter = self.painter()
-        fill = theme.SURFACE
+        fill = theme.colors.surface
         if self.isDown():
-            fill = theme.SELECTED
+            fill = theme.colors.selected
         elif self.hovered():
-            fill = theme.HOVER
+            fill = theme.colors.hover
         if self._focus_shown:
             inset = theme.FOCUS_WIDTH / 2
-            painter.setPen(QPen(theme.FOCUS, theme.FOCUS_WIDTH))
+            painter.setPen(QPen(theme.colors.focus, theme.FOCUS_WIDTH))
         else:
             inset = 0.5
-            painter.setPen(QPen(theme.SURFACE_BORDER, 1))
+            painter.setPen(QPen(theme.colors.surface_border, 1))
         painter.setBrush(fill)
         frame = QRectF(self.rect()).adjusted(inset, inset, -inset, -inset)
         painter.drawRoundedRect(frame, theme.CONTROL_RADIUS, theme.CONTROL_RADIUS)
@@ -131,10 +131,21 @@ class SceneStrip(QScrollArea):
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.setStyleSheet(_SCROLL_STYLE)
+        self.apply_theme()
         self.viewport().setAutoFillBackground(False)
         self.horizontalScrollBar().sliderReleased.connect(self._snap)
         self.set_scenes([])
+
+    def apply_theme(self) -> None:
+        self.setStyleSheet(f"""
+QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; }}
+QScrollBar:horizontal {{ background: transparent; height: {theme.SCROLLBAR_WIDTH}px;
+    margin: 0 2px; }}
+QScrollBar::handle:horizontal {{ background: {theme.colors.device_off.name()}; border-radius: 3px;
+    min-width: 24px; }}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: none; }}
+""")
 
     def scenes(self) -> list[Scene]:
         return [button.scene for button in self.buttons]
@@ -155,7 +166,7 @@ class SceneStrip(QScrollArea):
             self._row.addWidget(button)
             self.buttons.append(button)
         if not scenes:
-            empty = label(strings.NO_SCENES, theme.font(theme.CAPTION), theme.TEXT_SECONDARY)
+            empty = label(strings.NO_SCENES, theme.font(theme.CAPTION), secondary=True)
             empty.setFixedHeight(theme.SCENE_HEIGHT)
             self._row.addWidget(empty)
         self._row.addStretch(1)  # fewer than three: they keep their width, on the left
@@ -271,7 +282,7 @@ class ScenesSection(QWidget):
         self._capturing = 0  # reads for "Salvar atual" / "Sobrescrever" still running
         self.menu: QMenu | None = None
 
-        self.title = label(strings.SCENES, theme.font(), theme.TEXT)
+        self.title = label(strings.SCENES, theme.font())
         self.save_link = LinkButton(strings.SAVE_CURRENT)
         header = QWidget()
         header_layout = QHBoxLayout(header)
@@ -493,14 +504,3 @@ def _outcome(future: Future[Any]) -> Any:
         return future.result()
     except ServiceClosedError:
         return None
-
-
-_SCROLL_STYLE = f"""
-QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; }}
-QScrollBar:horizontal {{ background: transparent; height: {theme.SCROLLBAR_WIDTH}px;
-    margin: 0 2px; }}
-QScrollBar::handle:horizontal {{ background: {theme.DEVICE_OFF.name()}; border-radius: 3px;
-    min-width: 24px; }}
-QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
-QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: none; }}
-"""

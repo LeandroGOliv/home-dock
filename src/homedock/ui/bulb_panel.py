@@ -96,6 +96,10 @@ class RgbBulbPanel(QWidget):
         self.brightness.slider.moved.connect(
             lambda value: self._send(DeviceState(brightness=value))
         )
+        # A command may end while its control is still held, which ignores the state shown:
+        # show it again on release (e.g. a failed write reverts the control then).
+        for control in (self.arc, self.ring, self.brightness.slider, self.saturation.slider):
+            control.released.connect(self._sync)
         self._bridge.state_changed.connect(self._sync)
         self._bridge.online_changed.connect(self._sync)
 
@@ -137,8 +141,10 @@ class RgbBulbPanel(QWidget):
         state = shown_state(self.service, self._target)
         if state is None:
             return
+        # A mode the panel does not know (e.g. a scene set in the Tuya app) selects no tab,
+        # so either tab switches the bulb to it.
+        self.modes.set_current(state.work_mode)
         if state.work_mode is not None:
-            self.modes.set_current(state.work_mode)
             self._show_mode(state.work_mode)
         if state.color_temperature is not None:
             self.arc.set_value(state.color_temperature)

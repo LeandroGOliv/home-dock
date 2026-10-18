@@ -167,6 +167,19 @@ def test_a_second_press_during_a_drag_is_ignored(slider, qtbot):
     assert signals.moved == [20]
 
 
+def test_the_focus_ring_shows_only_for_the_keyboard(slider, qtbot):
+    slider.setFocus(Qt.FocusReason.MouseFocusReason)
+    assert not slider.focus_shown()
+
+    slider.clearFocus()
+    slider.setFocus(Qt.FocusReason.TabFocusReason)
+    assert slider.focus_shown()
+    slider.grab()  # paints the ring
+
+    slider.clearFocus()
+    assert not slider.focus_shown()
+
+
 def test_other_buttons_are_ignored(slider, qtbot):
     signals = Recorder(slider)
 
@@ -246,6 +259,21 @@ def test_an_option_set_by_code_emits_nothing(tabs):
     assert tabs.current() == "color"
     assert [b.isChecked() for b in tabs.buttons] == [False, True]
     assert chosen == []
+
+
+def test_the_control_can_have_no_selection_and_any_click_then_picks(tabs, qtbot):
+    chosen = []
+    tabs.chosen.connect(chosen.append)
+
+    tabs.set_current(None)
+    assert tabs.current() is None
+    assert not any(b.isChecked() for b in tabs.buttons)
+
+    qtbot.mouseClick(tabs.buttons[0], Qt.MouseButton.LeftButton)
+
+    assert tabs.current() == "white"
+    assert [b.isChecked() for b in tabs.buttons] == [True, False]
+    assert chosen == ["white"]
 
 
 def test_the_segmented_control_paints(tabs):

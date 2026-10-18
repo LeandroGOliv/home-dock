@@ -179,6 +179,22 @@ def test_the_panel_moves_on_when_the_shown_member_goes_offline(make_panel, execu
     assert panel.modes.current() is WorkMode.COLOR
 
 
+def test_an_unknown_mode_selects_no_tab_and_either_tab_switches_the_bulb(
+    make_panel, executor, qtbot
+):
+    device = bulb("b1", DeviceState(power=True, color_temperature=30))  # e.g. a Tuya scene
+    panel = make_panel(device)
+
+    assert panel.modes.current() is None
+    assert not any(b.isChecked() for b in panel.modes.buttons)
+
+    qtbot.mouseClick(panel.modes.buttons[0], Qt.MouseButton.LeftButton)
+    settle(executor)
+
+    assert device.applied == [DeviceState(work_mode=WorkMode.WHITE)]
+    assert panel.modes.current() is WorkMode.WHITE
+
+
 def test_shown_state_falls_back_to_the_last_known_state_when_nobody_answers(executor):
     device = bulb("b1", COLOUR)
     service = ControlService([device], executor=executor)
@@ -475,6 +491,23 @@ def test_a_failed_command_shows_the_real_state_again(make_panel, executor, qtbot
     click_slider(qtbot, panel.brightness.slider, 90)
     assert panel.brightness.value() == 90
     settle(executor)
+
+    assert panel.brightness.value() == 40
+    assert panel.brightness.amount.text() == "40%"
+
+
+def test_a_command_that_fails_while_the_control_is_held_reverts_on_release(
+    make_panel, executor, qtbot
+):
+    device = bulb("b1", WHITE)
+    panel = make_panel(device)
+    device.online = False
+    slider = panel.brightness.slider
+
+    qtbot.mousePress(slider, Qt.MouseButton.LeftButton, pos=slider_point(slider, 80))
+    settle(executor)  # the write fails while the thumb is still held
+    assert panel.brightness.value() == 80
+    qtbot.mouseRelease(slider, Qt.MouseButton.LeftButton, pos=slider_point(slider, 80))
 
     assert panel.brightness.value() == 40
     assert panel.brightness.amount.text() == "40%"

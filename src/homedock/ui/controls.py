@@ -10,6 +10,7 @@ from collections.abc import Hashable, Sequence
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
+    QFocusEvent,
     QHideEvent,
     QKeyEvent,
     QMouseEvent,
@@ -54,6 +55,7 @@ class Slider(QWidget):
         self._value = minimum
         self._dragging = False
         self._changed = False  # the value changed during the current drag
+        self._focus_shown = False  # reached with the keyboard: draw the focus ring
 
     def minimum(self) -> int:
         return self._minimum
@@ -143,6 +145,20 @@ class Slider(QWidget):
             self._end_drag()
         super().changeEvent(event)
 
+    def focusInEvent(self, event: QFocusEvent) -> None:
+        keyboard = (Qt.FocusReason.TabFocusReason, Qt.FocusReason.BacktabFocusReason)
+        self._focus_shown = event.reason() in keyboard  # not for a click, like Windows
+        self.update()
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event: QFocusEvent) -> None:
+        self._focus_shown = False
+        self.update()
+        super().focusOutEvent(event)
+
+    def focus_shown(self) -> bool:
+        return self._focus_shown
+
     def _drag_to(self, x: float) -> None:
         value = self._value_at(x)
         if value == self._value:
@@ -169,6 +185,12 @@ class Slider(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if not self.isEnabled():
             painter.setOpacity(theme.DISABLED_OPACITY)
+        if self._focus_shown:
+            painter.setPen(QPen(theme.FOCUS, theme.FOCUS_WIDTH))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            inset = theme.FOCUS_WIDTH / 2
+            ring = QRectF(self.rect()).adjusted(inset, inset, -inset, -inset)
+            painter.drawRoundedRect(ring, theme.CONTROL_RADIUS, theme.CONTROL_RADIUS)
         middle = self.height() / 2
         left, length = self._track()
         thumb = self._thumb_x()
@@ -262,6 +284,7 @@ class SegmentedControl(QWidget):
     """Mutually exclusive options side by side (e.g. Branco | Cor).
 
     ``chosen(key)`` fires when the user picks another option; ``set_current()`` does not.
+    ``set_current(None)`` selects nothing (e.g. an unknown mode): any option is then a pick.
     """
 
     chosen = Signal(object)
@@ -285,12 +308,19 @@ class SegmentedControl(QWidget):
             layout.addWidget(button)
         self.buttons[0].setChecked(True)
         self._group.idClicked.connect(self._clicked)
-        self._current = 0
+        self._current: int | None = 0
 
-    def current(self) -> Hashable:
-        return self._keys[self._current]
+    def current(self) -> Hashable | None:
+        return self._keys[self._current] if self._current is not None else None
 
-    def set_current(self, key: Hashable) -> None:
+    def set_current(self, key: Hashable | None) -> None:
+        if key is None:
+            self._current = None
+            self._group.setExclusive(False)  # an exclusive group keeps one option checked
+            for button in self.buttons:
+                button.setChecked(False)
+            self._group.setExclusive(True)
+            return
         self._current = self._keys.index(key)
         self.buttons[self._current].setChecked(True)
 

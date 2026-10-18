@@ -26,6 +26,7 @@ MARKER_SHADOW = QColor(0, 0, 0, 110)  # keeps the marker visible on the light wh
 SLIDER_RAIL = QColor("#9E9E9E")  # the part of a slider's track after the thumb
 SLIDER_THUMB_FILL = QColor("#454545")
 SLIDER_THUMB_BORDER = QColor("#5A5A5A")
+FOCUS = QColor("#FFFFFF")  # the ring of a control reached with the keyboard
 DISABLED_OPACITY = 0.4
 # The temperature arc, warm → neutral → cold (evenly spaced); also the tint of its preview
 TEMPERATURE_COLORS = (QColor("#FFA957"), QColor("#FFF1E0"), QColor("#C9DAFF"))
@@ -60,6 +61,7 @@ TABS_INSET = 4  # gap between the switch's border and the selected option
 SLIDER_HEIGHT = 24  # the area that takes clicks
 SLIDER_TRACK = 4
 SLIDER_THUMB = 20
+FOCUS_WIDTH = 2
 SLIDER_THUMB_DOT = 12  # the accent dot in the thumb; a bit bigger while hovered
 PANEL_GAP = 18  # between the switch, the dial and the sliders
 

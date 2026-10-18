@@ -355,7 +355,9 @@ def test_reloading_the_devices_writes_the_ips_and_controls_the_new_devices(qtbot
         ran.append(work)
         return Future()  # the test runs the work itself, as the worker would
 
-    home = HomeDock(data, scan=lambda: found, in_background=in_background)
+    # A manual executor: no queued read may reach the new (fictitious) address.
+    service = ControlService(data.devices.catalog.devices, executor=ManualExecutor(), throttle=0)
+    home = HomeDock(data, service, scan=lambda: found, in_background=in_background)
     old = home.service.devices
     home.flyout.open()
     home.flyout.main.manage_requested.emit()

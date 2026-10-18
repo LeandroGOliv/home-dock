@@ -88,7 +88,9 @@ vir, procure na seta **^** ao lado do relógio). Abrir o app de novo não cria u
   brilho e liga/desliga de cada lâmpada). **+ Salvar atual** pede um nome e salva o estado
   das lâmpadas **do que está selecionado** no topo (Enter salva, Esc cancela). Clique
   direito numa cena (ou a tecla de menu): **Renomear**, **Sobrescrever com o estado
-  atual** ou **Excluir** — depois de excluir, **Desfazer** aparece por alguns segundos.
+  atual** (troca a cena pelo estado atual do que está selecionado) ou **Excluir** —
+  depois de excluir, **Desfazer** aparece por alguns segundos (e não some enquanto o
+  mouse estiver em cima).
   Aparece uma linha por vez; role com a roda do mouse para ver as outras. Lâmpadas offline
   ficam de fora ao aplicar ou salvar, e um aviso discreto diz quantas. As cenas ficam
   salvas no `config.json` e o submenu **Cenas** da bandeja mostra a mesma lista.

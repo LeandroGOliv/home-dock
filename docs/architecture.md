@@ -333,19 +333,27 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
     row), "Nenhuma cena salva" when empty. A click applies the scene.
   - Names are typed in an **inline field** that takes the header's place (same height):
     a dialog would take the focus and close the flyout. Enter or ✓ accepts, Esc or ✕
-    cancels (Esc there does not close the flyout); the suggestion is "Cena n", the first
-    free number. "Salvar atual" captures the **current target** when the name is accepted.
+    cancels (Esc there, also on ✓/✕, does not close the flyout; the field has no Qt
+    context menu, which would be in English); the suggestion is "Cena n", the first free
+    number. "Salvar atual" captures the **current target** when the name is accepted; while
+    a capture runs, saving and overwriting are disabled (no duplicate "Cena n"). Closing
+    the field puts the focus on the renamed scene or on "+ Salvar atual".
   - Right click or the menu key → Renomear | Sobrescrever com o estado atual | Excluir (a
-    `QMenu` popup does not deactivate the flyout). Saving and overwriting are disabled for
-    a target without devices.
+    `QMenu` popup does not deactivate the flyout). "Sobrescrever" makes the scene the
+    current state of the **selected target's** devices that answered, like "Salvar atual";
+    nothing changes when none answers. Saving and overwriting are disabled for a target
+    without devices. Deleting a focused scene moves the focus to its neighbour.
   - A discreet **notice** above the grid (so the grid stays under the pointer while the
-    flyout grows upwards) hides after 6 s: offline devices left out when applying or
-    saving ("Filme · 1 lâmpada offline ficou de fora"), nothing saved when no device
-    answered, a failed save, and "Cena X excluída" with **Desfazer**, which puts the scene
-    back at its position (`SceneBook.restore`).
+    flyout grows upwards) hides after 6 s, but not while the pointer is on it (the flyout
+    would shrink under the pointer reaching for the action): offline devices left out when
+    applying or saving ("Filme · 1 lâmpada offline ficou de fora"), nothing saved when no
+    device answered, a failed save, and "“X” excluída" with **Desfazer**, which puts the
+    scene back at its position (`SceneBook.restore`). Devices removed since a scene was
+    saved are skipped silently.
   - Every change is persisted at once through `save_scenes` (`AppData.save`); the grid
     then shows what is saved, so a failed save (`OSError`) leaves the old list. Opening the
-    flyout re-reads the scenes, closes the name field and hides the notice.
+    flyout re-reads the scenes, shows the first row, closes the name field and hides the
+    notice.
 - **Manage pages** (issue #12) — Gerenciar grupos e lâmpadas → Editar grupo (name,
   members, delete).
 - **Theme** (`theme.py`) — colours, sizes and fonts measured on the mockups (dark theme,

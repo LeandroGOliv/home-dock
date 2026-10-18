@@ -63,10 +63,11 @@ a = Analysis(
     excludes=["tkinter", "setuptools", "pkg_resources", "_distutils_hack", "distutils"],
 )
 
-# Never bundle local data: the wizard's files, HomeDock's own files, anything from the
-# folders that hold them.
+# Never bundle local data: the wizard's files, HomeDock's own files, environment files,
+# anything from the folders that hold them.
 LOCAL_DATA = re.compile(
-    r"(devices|config|tinytuya|tuya-raw|snapshot)(\.corrupt-.*)?\.json|.*\.log(\.\d+)?",
+    r"(devices|config|tinytuya|tuya-raw|snapshot)(\.corrupt-.*)?\.json|.*\.log(\.\d+)?"
+    r"|\.env(\..*)?|config\.local\..*",
     re.IGNORECASE,
 )
 LOCAL_FOLDERS = [

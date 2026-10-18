@@ -44,6 +44,15 @@ class SceneBook:
     def delete(self, scene_id: str) -> None:
         del self._scenes[scene_id]
 
+    def restore(self, scene: Scene, index: int) -> Scene:
+        """Put a deleted ``scene`` back at ``index`` (undo); raises if it is still here."""
+        if scene.id in self._scenes:
+            raise ValueError("scene is already in the book")
+        scenes = self.all()
+        scenes.insert(index, scene)
+        self._scenes = {s.id: s for s in scenes}
+        return scene
+
     def _store(self, scene: Scene) -> Scene:
         self._scenes[scene.id] = scene
         return scene

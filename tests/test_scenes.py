@@ -69,3 +69,24 @@ def test_delete_and_unknown_scenes():
 def test_the_book_starts_from_existing_scenes_in_order():
     saved = [Scene("s-1", "Leitura", READING), Scene("s-2", "Festa", PARTY)]
     assert make_book(*saved).all() == saved
+
+
+def test_restore_puts_a_deleted_scene_back_at_its_position():
+    saved = [Scene("s-1", "Leitura", READING), Scene("s-2", "Festa", PARTY)]
+    book = make_book(*saved, Scene("s-3", "Filme", READING))
+    book.delete("s-2")
+    assert book.restore(saved[1], 1) == saved[1]
+    assert [s.id for s in book.all()] == ["s-1", "s-2", "s-3"]
+
+
+def test_restore_clamps_the_position_to_the_end():
+    book = make_book(Scene("s-1", "Leitura", READING))
+    book.restore(Scene("s-2", "Festa", PARTY), 5)
+    assert [s.id for s in book.all()] == ["s-1", "s-2"]
+
+
+def test_restore_refuses_a_scene_that_is_still_in_the_book():
+    book = make_book(Scene("s-1", "Leitura", READING))
+    with pytest.raises(ValueError):
+        book.restore(Scene("s-1", "Leitura", READING), 0)
+    assert len(book.all()) == 1

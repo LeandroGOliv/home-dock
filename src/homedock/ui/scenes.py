@@ -29,7 +29,6 @@ from PySide6.QtGui import (
     QWheelEvent,
 )
 from PySide6.QtWidgets import (
-    QApplication,
     QFrame,
     QHBoxLayout,
     QLineEdit,
@@ -521,12 +520,12 @@ class ScenesSection(QWidget):
     def _overwrite(self, scene: Scene) -> None:
         self._capture(scene.name, partial(self._replace, scene))
 
-    def _delete(self, scene: Scene) -> None:
+    def _delete(self, scene: Scene, *, had_focus: bool = False) -> None:
+        """``had_focus``: the scene's button had the focus (keep it on the scenes)."""
         ids = [s.id for s in self._scenes()]
         index = ids.index(scene.id) if scene.id in ids else len(ids)
-        had_focus = self._button_has_focus(scene)
         if self._change(lambda book: book.delete(scene.id)):
-            if had_focus and self.strip.buttons:  # keep a keyboard user on the scenes
+            if had_focus and self.strip.buttons:
                 self.strip.buttons[min(index, len(self.strip.buttons) - 1)].setFocus()
             undo = partial(self._undo_delete, scene, index)
             self._notify(strings.scene_deleted(scene.name), (strings.UNDO, undo))
@@ -543,7 +542,10 @@ class ScenesSection(QWidget):
         overwrite = menu.addAction(strings.OVERWRITE)
         overwrite.setEnabled(self._can_capture())
         overwrite.triggered.connect(partial(self._overwrite, scene))
-        menu.addAction(strings.DELETE).triggered.connect(partial(self._delete, scene))
+        # Whether the button has the focus is known now: once the menu closes, some
+        # platforms do not give the focus back to it.
+        delete = partial(self._delete, scene, had_focus=self._button_has_focus(scene))
+        menu.addAction(strings.DELETE).triggered.connect(delete)
         menu.destroyed.connect(partial(self._forget_menu, menu))
         self.menu = menu
         menu.popup(position)
@@ -559,7 +561,7 @@ class ScenesSection(QWidget):
         self.editor.start(text)
 
     def _close_editor(self) -> None:
-        typing = self.editor.isAncestorOf(QApplication.focusWidget())
+        typing = self.editor.isAncestorOf(self.window().focusWidget())
         self._top.setCurrentIndex(0)
         if typing:  # the focus would be lost with the hidden field
             renamed = self._renaming
@@ -567,7 +569,10 @@ class ScenesSection(QWidget):
             next(buttons, self.save_link).setFocus()
 
     def _button_has_focus(self, scene: Scene) -> bool:
-        return any(b.scene.id == scene.id and b.hasFocus() for b in self.strip.buttons)
+        """Whether the scene's button has the focus within the window (also while the window
+        is not active, e.g. right after a popup on a platform that does not reactivate it)."""
+        focused = self.window().focusWidget()
+        return any(b.scene.id == scene.id and b is focused for b in self.strip.buttons)
 
     def _notify(self, text: str, action: tuple[str, Callable[[], object]] | None = None) -> None:
         self.notice.set_message(text, action)

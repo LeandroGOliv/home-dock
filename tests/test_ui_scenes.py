@@ -99,9 +99,8 @@ class Harness:
 
     def choose(self, name: str, item: str) -> None:
         items = self.menu(name)
-        menu = self.section.menu
+        self.section.menu.close()  # like QMenu: it closes, then triggers the chosen item
         items[item].trigger()
-        menu.close()
 
     def type_name(self, qtbot, text: str) -> None:
         field = self.section.editor.field
@@ -582,15 +581,18 @@ def test_closing_the_name_field_keeps_the_focus_in_the_section(make_section, qtb
     assert harness.button("Ler").hasFocus()
 
 
-def test_deleting_a_focused_scene_moves_the_focus_to_its_neighbour(make_section):
+def test_deleting_a_focused_scene_keeps_the_focus_on_the_scenes(make_section):
     scenes = [scene("s1", "Leitura"), scene("s2", "Filme"), scene("s3", "Relaxar")]
     harness = make_section(bulb("b1"), scenes=scenes)
-    harness.button("Filme").setFocus(Qt.FocusReason.TabFocusReason)
 
-    harness.choose("Filme", strings.DELETE)
-    QApplication.processEvents()
+    for deleted, neighbour in (("Filme", "Relaxar"), ("Relaxar", "Leitura")):  # the last: back
+        harness.button(deleted).setFocus(Qt.FocusReason.TabFocusReason)
+        harness.choose(deleted, strings.DELETE)
+        QApplication.processEvents()
 
-    assert harness.button("Relaxar").hasFocus()
+        # The window's focus widget: without a window manager (offscreen, as on CI) no window
+        # is active again after the menu closes, so no widget reports hasFocus().
+        assert harness.section.focusWidget() is harness.button(neighbour)
 
 
 def test_the_focus_ring_comes_back_after_the_scene_menu(make_section):

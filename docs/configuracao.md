@@ -117,6 +117,11 @@ Reserve um IP fixo para cada lâmpada no seu roteador (**reserva DHCP**, normalm
 *LAN / DHCP / Endereços reservados*, usando o MAC da lâmpada). Assim o IP nunca muda e o
 HomeDock não precisa redescobrir a lâmpada.
 
+Sem IP fixo, o HomeDock também se vira: quando uma lâmpada deixa de responder algumas
+vezes seguidas, ele procura as lâmpadas na rede (no máximo uma vez a cada 5 minutos) e,
+se o IP dela mudou, atualiza o campo `ip` no `devices.json` e volta a controlá-la no
+endereço novo.
+
 ## Adicionar um dispositivo novo
 
 O HomeDock não consegue cadastrar sozinho um dispositivo novo (a chave dele só vem do
@@ -163,7 +168,7 @@ do celular (nas configurações do dispositivo, opções como *memória ao desli
 | Sintoma | O que verificar |
 |---|---|
 | Wizard não encontra dispositivos / IPs vazios | Rede marcada como Privada? Lâmpadas energizadas? PC na mesma rede? Firewall liberado para o Python em redes privadas? |
-| Lâmpada aparece *offline* no HomeDock | Ela está energizada? O IP mudou (use **Procurar lâmpadas novas** ou reserve IP fixo)? |
+| Lâmpada aparece *offline* no HomeDock | Ela está energizada? Ao religá-la, ela volta a aparecer online sozinha em até ~30 s. Se o IP mudou, o HomeDock a procura na rede sozinho em menos de um minuto (ou use **Procurar lâmpadas novas**); reserve IP fixo para evitar. |
 | "Não foi possível procurar na rede" | Outro programa (ex.: um `tinytuya scan` aberto) está usando as portas UDP 6666/6667/7000, ou o firewall bloqueou o HomeDock. Feche o outro programa e tente de novo. |
 | Erro de chave / dispositivo não responde após reset | A local key mudou — rode o wizard de novo e reimporte. |
 | Wizard reclama de credenciais | Confira Access ID/Secret e o Data Center (Western America → região `us`). |

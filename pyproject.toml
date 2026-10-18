@@ -51,7 +51,9 @@ select = [
 
 [tool.ruff.lint.pep8-naming]
 # Qt overrides use camelCase (paintEvent, mousePressEvent, ...).
-ignore-names = ["*Event", "sizeHint", "minimumSizeHint", "focusNextPrevChild"]
+ignore-names = [
+    "*Event", "sizeHint", "minimumSizeHint", "focusNextPrevChild", "eventFilter",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

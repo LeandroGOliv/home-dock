@@ -243,6 +243,11 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
   - "Iniciar com o Windows" only saves `settings.start_with_windows` for now (the Windows
     `Run` entry comes with the packaging issue); a failed save reverts the check mark.
   - `&` in names is escaped so it is not taken as a keyboard shortcut.
+  - Checkable items (the device toggles, "Iniciar com o Windows") keep the menu open, by
+    mouse or keyboard (Enter or space; holding the key toggles once), so several devices
+    can be toggled in a row (`StayOpenMenu`). The rule is the item being checkable, not
+    the device type. Every other item closes the menu as usual, and so do Esc and a click
+    outside it.
 - **Flyout** (`flyout.py`) — a frameless 360 px tool window with painted rounded corners.
   It opens in the tray corner of the screen under the cursor, on the taskbar's side
   (`placement.py`: bottom-right, top-right with the taskbar on top, bottom-left with it on

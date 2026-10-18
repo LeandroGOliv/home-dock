@@ -86,9 +86,11 @@ vir, procure na seta **^** ao lado do relógio). Abrir o app de novo não cria u
   vão para todas as lâmpadas do grupo.
 - **Clique direito:** menu com **Abrir painel**, **Ligar todos**, **Desligar todos**, uma
   opção por lâmpada (marcada = acesa; "offline" quando ela não responde), **Cenas** (aplica
-  uma cena salva), **Iniciar com o Windows** e **Sair**. Por enquanto, **Iniciar com o
-  Windows** só guarda a preferência; o registro no Windows chega junto com o
-  `HomeDock.exe`.
+  uma cena salva), **Iniciar com o Windows** e **Sair**. Ao ligar/desligar uma lâmpada ou
+  alternar **Iniciar com o Windows**, o menu continua aberto (com o mouse ou com Enter/
+  espaço), para você mexer em várias lâmpadas seguidas; os outros itens, **Esc** ou um
+  clique fora fecham o menu. Por enquanto, **Iniciar com o Windows** só guarda a
+  preferência; o registro no Windows chega junto com o `HomeDock.exe`.
 
 O estado das lâmpadas é lido de novo toda vez que o menu ou o painel abre. Os comandos
 nunca travam o app, mesmo com uma lâmpada fora da tomada.

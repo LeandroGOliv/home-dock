@@ -88,3 +88,24 @@ def test_the_book_starts_from_existing_groups():
     book = make_book(existing)
     assert book.all() == [existing]
     assert book.create("Quarto").id == "group-1"
+
+
+def test_restore_puts_a_deleted_group_back_at_its_position():
+    saved = [Group("g-1", "Sala", ("dev-a",)), Group("g-2", "Quarto", ("dev-b",))]
+    book = make_book(*saved, Group("g-3", "Casa"))
+    book.delete("g-2")
+    assert book.restore(saved[1], 1) == saved[1]
+    assert [g.id for g in book.all()] == ["g-1", "g-2", "g-3"]
+
+
+def test_restore_clamps_the_position_to_the_end():
+    book = make_book(Group("g-1", "Sala"))
+    book.restore(Group("g-2", "Quarto"), 5)
+    assert [g.id for g in book.all()] == ["g-1", "g-2"]
+
+
+def test_restore_refuses_a_group_that_is_still_in_the_book():
+    book = make_book(Group("g-1", "Sala"))
+    with pytest.raises(ValueError):
+        book.restore(Group("g-1", "Sala"), 0)
+    assert len(book.all()) == 1

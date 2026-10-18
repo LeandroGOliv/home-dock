@@ -111,7 +111,9 @@ def follow(qapp):
 
 
 def windows_changed_theme() -> None:
-    QApplication.sendEvent(QApplication.instance(), QEvent(QEvent.Type.ThemeChange))
+    """What Qt does when Windows changes its colours."""
+    for receiver in (QApplication.instance(), QApplication.styleHints()):
+        QApplication.sendEvent(receiver, QEvent(QEvent.Type.ThemeChange))
 
 
 def test_the_windows_theme_is_used_from_the_start(follow):
@@ -186,3 +188,20 @@ def test_the_accent_text_shade_is_followed(follow, qtbot):
     with qtbot.waitSignal(system_theme.changed, timeout=1000):
         windows_changed_theme()
     assert theme.colors.accent_text == QColor("#00337C")
+
+
+def test_qt_is_asked_for_a_scheme_once_even_if_it_reports_another(follow, qapp, monkeypatch):
+    """Qt sends a ThemeChange for every request, and may report another scheme than the
+    one asked for (high contrast): asking again each time would never end."""
+    requests = []
+    hints = type(qapp.styleHints())
+
+    def request(_hints, scheme):
+        requests.append(scheme)
+        windows_changed_theme()
+
+    monkeypatch.setattr(hints, "colorScheme", lambda _hints: Qt.ColorScheme.Unknown)
+    monkeypatch.setattr(hints, "setColorScheme", request)
+    follow(FakeWindows(light=True))
+    windows_changed_theme()
+    assert requests == [Qt.ColorScheme.Light]

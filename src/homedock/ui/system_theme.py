@@ -4,8 +4,8 @@ The flyout sits by the taskbar, like the Windows flyouts, so it follows the *Win
 (taskbar, Start), not the mode chosen for apps. Its accent shades are the ones those
 flyouts use: light ones on dark, dark ones on light. Both are read from the registry; Qt
 is asked for the same colour scheme, so its own widgets (the tray menu) match. When
-Windows changes its colours, Qt sends the app a ``ThemeChange`` event and everything is
-read again.
+Windows changes its colours, Qt sends a ``ThemeChange`` event to the app and to its style
+hints, and everything is read again.
 """
 
 from __future__ import annotations
@@ -82,23 +82,27 @@ class SystemTheme(QObject):
         super().__init__(app)
         self._app = app
         self._read = read
+        self._requested: Qt.ColorScheme | None = None
         self._apply()
-        app.installEventFilter(self)
+        # The style hints rather than the app: a filter on the app sees every event.
+        app.styleHints().installEventFilter(self)
 
     def stop(self) -> None:
-        self._app.removeEventFilter(self)
+        self._app.styleHints().removeEventFilter(self)
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        if watched is self._app and event.type() == QEvent.Type.ThemeChange:
+        if event.type() == QEvent.Type.ThemeChange:
             self._apply()
         return False
 
     def _apply(self) -> None:
         windows = self._read()
         scheme = Qt.ColorScheme.Light if windows.light else Qt.ColorScheme.Dark
-        hints = self._app.styleHints()
-        if hints.colorScheme() != scheme:  # asking sends another ThemeChange, at once
-            hints.setColorScheme(scheme)
+        # Each request sends another ThemeChange at once, and Qt may report another scheme
+        # (high contrast): compare with the last request, or this would never end.
+        if scheme != self._requested:
+            self._requested = scheme
+            self._app.styleHints().setColorScheme(scheme)
         accent, text = windows.accent, windows.accent_text
         if accent is None:
             accent = text = self._app.palette().color(QPalette.ColorRole.Accent)

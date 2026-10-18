@@ -16,9 +16,9 @@ Na v1 o foco são as **lâmpadas RGB Wi-Fi da Positivo Casa Inteligente** (Tuya 
 - opção de iniciar com o Windows.
 
 > **Status:** em desenvolvimento. O ícone na bandeja, o menu e o painel (flyout) com o
-> seletor de alvo e os controles de modo, cor e brilho já funcionam; as cenas no painel
-> ainda não — acompanhe as [issues](https://github.com/LeandroGOLiv/home-dock/issues) e
-> milestones.
+> seletor de alvo, os controles de modo, cor e brilho e as cenas já funcionam; o
+> gerenciamento de grupos e lâmpadas ainda não — acompanhe as
+> [issues](https://github.com/LeandroGOLiv/home-dock/issues) e milestones.
 
 ## Requisitos
 
@@ -84,6 +84,16 @@ vir, procure na seta **^** ao lado do relógio). Abrir o app de novo não cria u
   **Saturação**. O **Brilho** vale para os dois modos. As lâmpadas mudam enquanto você
   arrasta. Num grupo, o painel mostra o estado da primeira lâmpada online e os comandos
   vão para todas as lâmpadas do grupo.
+- **Cenas:** embaixo do painel. Clique numa cena para aplicá-la (modo, cor ou temperatura,
+  brilho e liga/desliga de cada lâmpada). **+ Salvar atual** pede um nome e salva o estado
+  das lâmpadas **do que está selecionado** no topo (Enter salva, Esc cancela). Clique
+  direito numa cena (ou a tecla de menu): **Renomear**, **Sobrescrever com o estado
+  atual** (troca a cena pelo estado atual do que está selecionado) ou **Excluir** —
+  depois de excluir, **Desfazer** aparece por alguns segundos (e não some enquanto o
+  mouse estiver em cima). Aparecem três cenas por vez, lado a lado; as outras rolam para
+  o lado (roda do mouse ou a barrinha embaixo). Lâmpadas offline ficam de fora ao aplicar
+  ou salvar, e um aviso discreto diz quantas. As cenas ficam salvas no `config.json` e o
+  submenu **Cenas** da bandeja mostra a mesma lista.
 - **Clique direito:** menu com **Abrir painel**, **Ligar todos**, **Desligar todos**, uma
   opção por lâmpada (marcada = acesa; "offline" quando ela não responde), **Cenas** (aplica
   uma cena salva), **Iniciar com o Windows** e **Sair**. Ao ligar/desligar uma lâmpada ou

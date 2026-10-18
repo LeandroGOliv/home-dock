@@ -1,9 +1,9 @@
 """The flyout: a frameless window next to the tray, in the Windows 11 style.
 
 One window holding a stack of pages. The main page has the target selector, the power
-button for the selected target and the control panel of the target's device type (from the
-panel registry). The flyout reads the real state of the devices each time it opens and
-closes when it loses focus or on Esc.
+button for the selected target, the control panel of the target's device type (from the
+panel registry) and the scenes. The flyout reads the real state of the devices each time it
+opens and closes when it loses focus or on Esc.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import math
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import Future
 from typing import Any
 
@@ -19,13 +19,14 @@ from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QCursor, QGuiApplication, QKeyEvent, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
-from homedock.core import ControlService, Target
+from homedock.core import ControlService, Scene, Target
 from homedock.devices import DeviceState
 from homedock.ui import strings, theme
 from homedock.ui.bridge import ServiceBridge
 from homedock.ui.icons import paint_chevron
 from homedock.ui.panels import PanelContext, PanelRegistry, default_panels
 from homedock.ui.placement import flyout_position
+from homedock.ui.scenes import ScenesSection
 from homedock.ui.selector import PowerButton, TargetButton, TargetList
 from homedock.ui.target_model import build_model
 from homedock.ui.widgets import PaintedButton, label
@@ -79,7 +80,8 @@ class PageStack(QWidget):
 
 
 class MainPage(QWidget):
-    """Target selector, power button and the control panel of the selected target."""
+    """Target selector, power button, the control panel of the selected target and the
+    scenes."""
 
     manage_requested = Signal()
     layout_changed = Signal()
@@ -93,6 +95,8 @@ class MainPage(QWidget):
         names: Callable[[], Mapping[str, str]],
         last_target: Callable[[], Target | None],
         set_last_target: Callable[[Target], None],
+        scenes: Callable[[], Sequence[Scene]],
+        save_scenes: Callable[[Sequence[Scene]], None],
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -114,6 +118,10 @@ class MainPage(QWidget):
         self._content_layout = QVBoxLayout(self._content)
         self._content_layout.setContentsMargins(0, 0, 0, 0)
         self._content.hide()
+        self.scenes = ScenesSection(
+            service, bridge, target=lambda: self._target, scenes=scenes, save_scenes=save_scenes
+        )
+        self.scenes.hide()
 
         header = QHBoxLayout()
         header.setSpacing(theme.SPACING)
@@ -125,11 +133,15 @@ class MainPage(QWidget):
         layout.addLayout(header)
         layout.addWidget(self.target_list)
         layout.addWidget(self._content)
+        # The gap belongs to the scenes, so it goes away with them while the list is open.
+        self.scenes.setContentsMargins(0, theme.SECTION_GAP - layout.spacing(), 0, 0)
+        layout.addWidget(self.scenes)
 
         self.target_button.toggled.connect(self._show_list)
         self.target_list.chosen.connect(self.select)
         self.target_list.manage_requested.connect(self.manage_requested)
         self.power_button.clicked.connect(self._switch)
+        self.scenes.layout_changed.connect(self.layout_changed)
         bridge.state_changed.connect(self._sync)
         bridge.online_changed.connect(self._sync)
 
@@ -138,13 +150,14 @@ class MainPage(QWidget):
         return self._target
 
     def reload(self) -> None:
-        """Show the latest names and groups, keep the target if it still exists and read the
+        """Show the latest names, groups and scenes, keep the target if it still exists and read the
         real state of every device (answers update the page as they arrive)."""
         self.target_button.setChecked(False)
         model = build_model(self.service, self._names())
         preferred = self._target if self._target is not None else self._last_target()
         self._target = model.choose(preferred)
         self._rebuild_panel()  # the members, hence the panel type, may have changed
+        self.scenes.reload()
         self._sync()
         for device_type in dict.fromkeys(d.type for d in self.service.devices):
             self._track(self.service.refresh(Target.all_of(device_type)))
@@ -175,6 +188,7 @@ class MainPage(QWidget):
         if self.panel is not None:
             self._content_layout.addWidget(self.panel)
             self.panel.show()  # shown with the content, not on a later event loop pass
+        self.scenes.update_actions()
         self._show_list(self.target_button.isChecked())
 
     def _sync(self, *_args: object) -> None:
@@ -195,6 +209,7 @@ class MainPage(QWidget):
     def _show_list(self, shown: bool) -> None:
         self.target_list.setVisible(shown)
         self._content.setVisible(not shown and self.panel is not None)
+        self.scenes.setVisible(not shown)
         self.layout_changed.emit()
 
     def _switch(self, on: bool) -> None:
@@ -268,10 +283,13 @@ class Flyout(QWidget):
         names: Callable[[], Mapping[str, str]],
         last_target: Callable[[], Target | None],
         set_last_target: Callable[[Target], None],
+        scenes: Callable[[], Sequence[Scene]],
+        save_scenes: Callable[[Sequence[Scene]], None],
         panels: PanelRegistry | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        """``set_last_target`` persists the selected target and raises ``OSError``."""
+        """``set_last_target`` and ``save_scenes`` persist the selected target and the scenes;
+        they raise ``OSError``."""
         flags = (
             Qt.WindowType.Tool
             | Qt.WindowType.FramelessWindowHint
@@ -294,6 +312,8 @@ class Flyout(QWidget):
             names=names,
             last_target=last_target,
             set_last_target=set_last_target,
+            scenes=scenes,
+            save_scenes=save_scenes,
         )
         self.pages = PageStack(self.main)
         layout = QVBoxLayout(self)

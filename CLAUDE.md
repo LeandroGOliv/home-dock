@@ -110,9 +110,13 @@ model — never assume.
 - Every write is read back exactly as sent (no rounding).
 - Mode and values can go in one write (`{21: "colour", 24: …}`, `{21: "white", 22: …,
   23: …}`) — verified through the `RgbBulb` driver on a real bulb (2026-10-16, issue #4).
-- With a **persistent socket**, `status()` may return the bulb's queued *partial* push
-  (only the DPS that just changed). Either merge pushes into a state cache or read with
-  a fresh connection; never treat a partial dict as the full state.
+- With a **persistent socket**, a write is answered by an ack plus **one push per changed
+  DPS**, and tinytuya reads only one message per call: the other pushes (and the answer
+  to a retried query) wait on the socket and the next call would read them as its answer.
+  `TinyTuyaLink` reads every waiting message first, in order (issue #11). Never treat a
+  partial dict as the full state.
+- `{20: False, 21: …, 24: …}` in one write keeps the bulb off and stores the mode/colour
+  for the next power-on (verified 2026-10-17, issue #11) — how scenes restore an off bulb.
 - Device I/O never blocks the UI thread (workers/threads). Group commands run **in
   parallel**. Slider and ring drags are debounced/throttled.
 - Read the real device state when the flyout opens. Offline / IP change → show status and

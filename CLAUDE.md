@@ -159,6 +159,9 @@ model — never assume.
 - Widget math (angle ↔ hue/temperature, HSV ↔ hex) as pure functions with unit tests.
 - UI: `pytest-qt` only where it pays off (e.g. dragging a marker emits the right value).
 - Real hardware: only the diagnostics script and the manual validation step of each issue.
+- Fixture IPs come from 192.0.2.0/24, which the code accepts as a LAN range (like Python's
+  `is_private`); well-known special addresses (8.8.8.8, 127.0.0.1, 0.0.0.0…) only appear
+  in tests checking that they are refused.
 
 ## Workflow
 

@@ -27,7 +27,9 @@ You may detect secrets, but never echo their values. Report only file, line and 
    uv run python -c "import sys; sys.path.insert(0, 'scripts'); import check_tuya_secrets as h; print(len(h.load_secrets(h.default_sources())))"
    ```
 3. Grep the diff for hard-coded IDs/keys/IPs of the real network (private ranges like
-   192.168.x.x, 10.x.x.x). Examples and tests must use 192.0.2.0/24 and obvious fakes.
+   192.168.x.x, 10.x.x.x). Examples and tests must use 192.0.2.0/24 and obvious fakes;
+   well-known special addresses (8.8.8.8, 127.0.0.1, 0.0.0.0, 169.254.x.x…) may appear
+   only in tests that check such addresses are refused.
 4. Logging: any log/print/exception message that could include `key`, `local_key`,
    `apiSecret`, device IDs or IPs must go through the masking helper.
 5. Storage: the app writes only under `%APPDATA%\HomeDock\`; nothing resolves paths
@@ -75,24 +77,29 @@ value planted in memory.
   (`/actions/artifacts`); gitleaks SARIF must be empty or redacted (the action passes
   `--redact`); also caches, releases, deployments and the wiki (`<repo>.wiki.git`).
 
+Every output of these steps (dumps, extracted files, captured output) goes to the session
+scratchpad, **never inside the repo**: it may hold the very values being looked for.
+
 **(d) Real run**:
 - close the installed HomeDock first (single instance, and a bulb accepts one TCP client);
-- run `uv run python scripts/diagnose.py --dry-run` (reads only) into a file and
-  `uv run homedock`, then scan that output and everything under `%APPDATA%\HomeDock\logs`:
-  only masked forms may appear;
-- list `%APPDATA%\HomeDock` and the working folder: nothing else was written.
+- run `uv run python scripts/diagnose.py --dry-run` (reads only) into a scratchpad file
+  and `uv run homedock` from an empty scratchpad folder, then scan that output and
+  everything under `%APPDATA%\HomeDock\logs`: only masked forms may appear;
+- list `%APPDATA%\HomeDock` and that folder: nothing else was written.
 
 **(e) `HomeDock.exe`**:
 - `uv run pyinstaller packaging/HomeDock.spec`, list `dist\HomeDock\` and
   `uv run pyi-archive_viewer -r -b dist/HomeDock/HomeDock.exe`;
 - extract the CArchive and the PYZ **decompressed** (`PyInstaller.archive.readers`) and
-  `base_library.zip`, and scan all of it: no `devices.json`, `config.json`, logs or wizard
-  files, no real value, no path of the build machine.
+  `base_library.zip` into the scratchpad, and scan all of it: no `devices.json`,
+  `config.json`, logs or wizard files, no real value, no path of the build machine.
 
 If a real secret shows up: a **local key** → rotate it (re-pair the device, update the
 local `devices.json`), no history rewrite; a **Tuya IoT credential** → revoke/rotate it
 **and** rewrite the history; a **device ID or LAN IP** → fix the tree and record the (low)
-risk. Report findings masked in the PR body only; never commit a report file.
+risk. In public texts (PR body, issues) report the location and the kind; add the masked
+form (`ab…ef`) only for long values (keys, IDs), never for short ones (owner_id, lat/lon,
+the user name, a /24), whose edges give most of them away. Never commit a report file.
 
 ## Output
 

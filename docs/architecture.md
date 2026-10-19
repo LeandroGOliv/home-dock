@@ -617,7 +617,9 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
   IPv4 addresses are accepted, from a scan or from `devices.json` (`TinyTuyaLink` refuses
   any other before building the tinytuya device): a public address would send the
   handshake off the LAN, and `Auto` or `0.0.0.0` would make tinytuya scan on its own and
-  read a `devices.json` from the working directory.
+  read a `devices.json` from the working directory. Private is not the same as "on this
+  subnet": a forged private address of another network still goes to the router, which
+  is accepted because the forger must already be on the LAN.
 - **Known limits:** if two devices swap IPs, each probe reaches the other device (the
   negotiation fails) until a scan runs: after 3 failures, or up to 5 min later when a
   scan ran just before. A bulb powered off for good costs one 18 s passive scan every

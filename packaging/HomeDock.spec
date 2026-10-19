@@ -59,9 +59,44 @@ VERSION = VSVersionInfo(
 a = Analysis(
     [str(ROOT / "src" / "homedock" / "__main__.py")],
     pathex=[str(ROOT / "src")],
-    # Build tools nothing imports at run time (PyInstaller's setuptools hook pulls them in).
-    excludes=["tkinter", "setuptools", "pkg_resources", "_distutils_hack", "distutils"],
+    excludes=[
+        "tkinter",
+        # Build tools nothing imports at run time (PyInstaller's setuptools hook pulls them in).
+        *("setuptools", "pkg_resources", "_distutils_hack", "distutils"),
+        # A Qt module HomeDock never imports (PyInstaller's PySide6 analysis pulls it in, with
+        # its TLS plugins and OpenSSL).
+        "PySide6.QtNetwork",
+        # tinytuya's cloud client: HomeDock never goes to the cloud. tinytuya imports it only
+        # if present (it then warns on stdout, which a windowed exe does not have).
+        "requests",
+        # A dev dependency (scripts/perf_probe.py) tinytuya's scanner would use if present: the
+        # exe keeps the scanner's code path of a plain install.
+        "psutil",
+    ],
 )
+
+# The exe unpacks everything it holds at every start: leave out the Qt plugins and
+# translations HomeDock never loads (it paints its widgets and icons: no image formats, no
+# OpenGL) and keep only these.
+QT_NEEDED = {
+    "qwindows.dll",  # the Windows platform
+    "qmodernwindowsstyle.dll",  # the Windows 11 style of the tray menu
+    "qtbase_pt_BR.qm",  # Qt's own texts in pt-BR (ui.strings.install_qt_translation)
+}
+QT_UNUSED_LIBRARIES = {"opengl32sw.dll", "Qt6Svg.dll", "Qt6Network.dll"}
+
+
+def unused_qt(name):
+    path = Path(name)
+    if path.parts[:1] != ("PySide6",):
+        return False
+    if path.parts[1:2] in (("plugins",), ("translations",)):
+        return path.name not in QT_NEEDED
+    return path.name in QT_UNUSED_LIBRARIES
+
+
+a.binaries = [entry for entry in a.binaries if not unused_qt(entry[0])]
+a.datas = [entry for entry in a.datas if not unused_qt(entry[0])]
 
 # Never bundle local data: the wizard's files, HomeDock's own files, environment files,
 # anything from the folders that hold them.
@@ -84,11 +119,12 @@ leaked = [
 if leaked:
     raise SystemExit(f"refusing to bundle local data files: {sorted(leaked)}")
 
-# Qt's own texts in pt-BR (ui.strings.install_qt_translation): PyInstaller's Qt hooks
-# collect the translations next to the Qt libraries, where QLibraryInfo looks for them.
-QT_TRANSLATION = "qtbase_pt_BR.qm"
-if not any(Path(name).name == QT_TRANSLATION for name, _source, _kind in a.datas + a.binaries):
-    raise SystemExit(f"{QT_TRANSLATION} would not be bundled: Qt's texts would stay English")
+# PyInstaller's Qt hooks collect the plugins and translations next to the Qt libraries,
+# where Qt looks for them; without these the app would not start, or Qt's own texts would
+# stay English.
+bundled = {Path(name).name for name, _source, _kind in a.datas + a.binaries}
+if QT_NEEDED - bundled:
+    raise SystemExit(f"Qt files HomeDock needs would not be bundled: {sorted(QT_NEEDED - bundled)}")
 
 pyz = PYZ(a.pure)
 

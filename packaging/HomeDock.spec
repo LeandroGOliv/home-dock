@@ -1,10 +1,12 @@
-# PyInstaller spec of dist\HomeDock.exe: one file, no console, the painted bulb as its icon
+# PyInstaller spec of dist\HomeDock\HomeDock.exe: no console, the painted bulb as its icon
 # and the version of the package in its properties. Build from the repository root:
 #
 #     uv run pyinstaller packaging/HomeDock.spec
 #
-# The exe bundles code and libraries only: devices.json, config.json and the logs stay in
-# %APPDATA%\HomeDock, and the build stops if any local data file would be bundled.
+# One folder, not one file: the exe loads its libraries from _internal\ next to it instead
+# of unpacking them into a temporary folder at every start (about 4x faster, issue #35).
+# The folder bundles code and libraries only: devices.json, config.json and the logs stay
+# in %APPDATA%\HomeDock, and the build stops if any local data file would be bundled.
 
 import os
 import re
@@ -75,9 +77,8 @@ a = Analysis(
     ],
 )
 
-# The exe unpacks everything it holds at every start: leave out the Qt plugins and
-# translations HomeDock never loads (it paints its widgets and icons: no image formats, no
-# OpenGL) and keep only these.
+# Leave out the Qt plugins and translations HomeDock never loads (it paints its widgets and
+# icons: no image formats, no OpenGL) and keep only these: less to load and to copy.
 QT_NEEDED = {
     "qwindows.dll",  # the Windows platform
     "qmodernwindowsstyle.dll",  # the Windows 11 style of the tray menu
@@ -131,12 +132,13 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name=NAME,
     icon=str(ICON),
     version=VERSION,
     console=False,
     upx=False,
 )
+
+coll = COLLECT(exe, a.binaries, a.datas, name=NAME, upx=False)

@@ -63,3 +63,68 @@ def test_missing_sources_still_block_by_name(tmp_path, repo, monkeypatch):
     monkeypatch.setenv("HOMEDOCK_SECRET_SOURCES", str(tmp_path / "missing"))
     (repo / "devices.json").write_text("[]", encoding="utf-8")
     assert hook.main(["devices.json"]) == 1
+
+
+@pytest.mark.parametrize(
+    "name", ["config.json", "config.corrupt-20261018-120000.json", "homedock.log", "homedock.log.1"]
+)
+def test_app_data_files_are_blocked_by_name(secret_source, repo, name):
+    (repo / name).write_text("{}", encoding="utf-8")
+    assert hook.main([name]) == 1
+
+
+def test_source_with_bom_is_read(secret_source, repo):
+    devices = [{"id": FAKE_ID, "key": FAKE_KEY}]
+    (secret_source / "devices.json").write_text(json.dumps(devices), encoding="utf-8-sig")
+    (repo / "leak.py").write_text(f"KEY = '{FAKE_KEY}'\n", encoding="utf-8")
+    assert hook.main(["leak.py"]) == 1
+
+
+def test_unreadable_source_fails_closed(secret_source, repo, capsys):
+    (secret_source / "devices.json").write_text(f'[{{"key": "{FAKE_KEY}"', encoding="utf-8")
+    (repo / "clean.py").write_text("print('hello')\n", encoding="utf-8")
+    assert hook.main(["clean.py"]) == 1
+    captured = capsys.readouterr()
+    assert "devices.json" in captured.err
+    assert FAKE_KEY not in captured.out + captured.err
+
+
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-16-le", "utf-16-be"])
+def test_utf16_file_with_secret_is_blocked(secret_source, repo, encoding):
+    (repo / "scan.txt").write_text(f"key: {FAKE_KEY}\n", encoding=encoding)
+    assert hook.main(["scan.txt"]) == 1
+
+
+def test_binary_file_with_secret_is_blocked(secret_source, repo):
+    (repo / "dump.bin").write_bytes(b"\x89PNG\x00\xff" + FAKE_ID.encode() + b"\x00\x01")
+    assert hook.main(["dump.bin"]) == 1
+
+
+def test_secret_is_matched_whatever_its_case(secret_source, repo):
+    (repo / "leak.py").write_text(f"ID = '{FAKE_ID.upper()}'\n", encoding="utf-8")
+    assert hook.main(["leak.py"]) == 1
+
+
+@pytest.mark.parametrize("written", ["0a:1b:2c:3d:4e:5f", "0A-1B-2C-3D-4E-5F", "0a1b2c3d4e5f"])
+def test_mac_is_matched_in_any_notation(secret_source, repo, written):
+    devices = [{"id": FAKE_ID, "mac": "0a:1b:2c:3d:4e:5f"}]
+    (secret_source / "devices.json").write_text(json.dumps(devices), encoding="utf-8")
+    (repo / "leak.py").write_text(f"MAC = '{written}'\n", encoding="utf-8")
+    assert hook.main(["leak.py"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("dump", "content", "leaked"),
+    [
+        ("devices.json", [{"id": FAKE_ID, "last_ip": "203.0.113.70"}], "203.0.113.70"),
+        ("tuya-raw.json", {"result": [{"local_key": "rawLocalKey00001"}]}, "rawLocalKey00001"),
+        ("tuya-raw.json", {"result": [{"uid": "az0000000000000fake1"}]}, "az0000000000000fake1"),
+        ("tuya-raw.json", {"result": [{"owner_id": "100000001"}]}, "100000001"),
+        ("tuya-raw.json", {"result": [{"lat": "-12.3456", "lon": "-45.6789"}]}, "-45.6789"),
+        ("snapshot.json", {"devices": [{"id": "fakesnapshotid000001"}]}, "fakesnapshotid000001"),
+    ],
+)
+def test_every_wizard_output_is_a_source(secret_source, repo, dump, content, leaked):
+    (secret_source / dump).write_text(json.dumps(content), encoding="utf-8")
+    (repo / "leak.py").write_text(f"VALUE = '{leaked}'\n", encoding="utf-8")
+    assert hook.main(["leak.py"]) == 1

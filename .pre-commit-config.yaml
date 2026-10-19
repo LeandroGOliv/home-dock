@@ -31,13 +31,13 @@ repos:
       - id: gitleaks
 
   # Tuya local keys have no recognisable pattern: compare against the real local values.
+  # Binary files too (screenshots, archives): the hook searches raw bytes.
   - repo: local
     hooks:
       - id: block-tuya-secrets
         name: block Tuya secrets (local keys, device IDs, IPs, wizard dumps)
         entry: python scripts/check_tuya_secrets.py
         language: python
-        types: [text]
 
   - repo: https://github.com/compilerla/conventional-pre-commit
     rev: v4.4.0

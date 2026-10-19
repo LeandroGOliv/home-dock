@@ -19,7 +19,7 @@ from homedock.storage.devices import (
     update_ips,
 )
 from homedock.storage.files import AppPaths, write_atomic
-from homedock.storage.logs import setup_logging
+from homedock.storage.logs import setup_logging, uncaught_exceptions_logged
 
 __all__ = [
     "CURRENT_SCHEMA",
@@ -39,6 +39,7 @@ __all__ = [
     "open_app_data",
     "save_config",
     "setup_logging",
+    "uncaught_exceptions_logged",
     "update_ips",
     "write_atomic",
 ]

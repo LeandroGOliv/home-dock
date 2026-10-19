@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import logging
+import sys
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from types import TracebackType
 
 from homedock.masking import RedactingFilter
 
@@ -43,3 +48,34 @@ def setup_logging(
     target.setLevel(level)
     target.addHandler(handler)
     return redacting
+
+
+@contextmanager
+def uncaught_exceptions_logged(logger: logging.Logger | None = None) -> Iterator[None]:
+    """While active, log uncaught exceptions of any thread (and of Qt slots) to ``logger``.
+
+    Python prints them to stderr otherwise, past the masking filter, and the windowed exe
+    has no console. The previous hooks come back on exit.
+    """
+    target = logger or logging.getLogger("homedock")
+    previous_hook, previous_thread_hook = sys.excepthook, threading.excepthook
+
+    def log_exception(
+        kind: type[BaseException], error: BaseException, traceback: TracebackType | None
+    ) -> None:
+        if issubclass(kind, KeyboardInterrupt):
+            previous_hook(kind, error, traceback)
+            return
+        target.critical("uncaught exception", exc_info=(kind, error, traceback))
+
+    def log_thread_exception(args: threading.ExceptHookArgs) -> None:
+        if args.exc_type is SystemExit:  # ignored by Python's own hook too
+            return
+        exc_info = (args.exc_type, args.exc_value, args.exc_traceback)
+        target.critical("uncaught exception in a thread", exc_info=exc_info)
+
+    sys.excepthook, threading.excepthook = log_exception, log_thread_exception
+    try:
+        yield
+    finally:
+        sys.excepthook, threading.excepthook = previous_hook, previous_thread_hook

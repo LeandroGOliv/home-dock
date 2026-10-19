@@ -99,6 +99,23 @@ def test_main_writes_only_under_appdata_homedock(qapp, folders):
     assert all_files(home) == set()
 
 
+def test_main_logs_exceptions_of_qt_slots_masked(qapp, folders):
+    # Printed to stderr they would skip the masking filter (and the exe has no console).
+    appdata, _, _ = folders
+
+    def fail():
+        raise ValueError("slot failed at 192.0.2.10")
+
+    QTimer.singleShot(0, fail)
+    QTimer.singleShot(0, qapp.quit)
+
+    assert main() == 0
+
+    text = (appdata / "HomeDock" / "logs" / LOG_FILE).read_text(encoding="utf-8")
+    assert "uncaught exception" in text
+    assert "ValueError: slot failed at 19…10" in text
+
+
 @pytest.mark.parametrize(
     ("language", "select_all"),
     [(strings.Language.PT_BR, "Selecionar tudo"), (strings.Language.EN, "Select All")],

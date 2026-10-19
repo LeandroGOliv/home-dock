@@ -23,7 +23,13 @@ from homedock.core import (
     start_timer,
 )
 from homedock.devices import FoundDevice, scan_lan
-from homedock.storage import AppData, DeviceReload, StartWithWindows, open_app_data
+from homedock.storage import (
+    AppData,
+    DeviceReload,
+    StartWithWindows,
+    open_app_data,
+    uncaught_exceptions_logged,
+)
 from homedock.ui import strings
 from homedock.ui.flyout import Flyout
 from homedock.ui.single_instance import DEFAULT_NAME, SingleInstance
@@ -181,12 +187,13 @@ def run(argv: Sequence[str] | None = None) -> int:
         translation = strings.install_qt_translation(app)  # before any widget, like the theme
         system_theme = SystemTheme(app)  # before any widget: they start in the right colours
         home = HomeDock(open_app_data())
-        home.show()
-        try:
-            return app.exec()
-        finally:
-            home.close()
-            system_theme.stop()
-            if translation is not None:
-                app.removeTranslator(translation)
-            log.info("HomeDock closed")
+        with uncaught_exceptions_logged():  # through the masking filter, not to stderr
+            home.show()
+            try:
+                return app.exec()
+            finally:
+                home.close()
+                system_theme.stop()
+                if translation is not None:
+                    app.removeTranslator(translation)
+                log.info("HomeDock closed")

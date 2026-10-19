@@ -271,8 +271,11 @@ written elsewhere is the start-with-Windows entry in the registry (below):
   root logger so library logs are covered too (calling `setup_logging()` again replaces
   the handler). A `RedactingFilter` on the handler masks the secrets imported from
   `devices.json` (ignoring letter case) and **any IPv4 address** in the message, the
-  exception text and the stack info. Load errors log only the error type, never values
-  read from the files.
+  exception text and the stack info. Secrets may be added from any thread while others
+  log (the set is replaced, never changed in place). Load errors log only the error type,
+  never values read from the files. While the app runs, `uncaught_exceptions_logged()`
+  sends uncaught exceptions of any thread and of Qt slots to the log, so they pass the
+  filter instead of going to stderr.
 - **Start-up** — `open_app_data()` sets up the logs, imports the devices (registering
   their secrets in the log filter), loads the config and writes the default `config.json`
   when there is none. `AppData.save(config)` persists changes. The UI start-up

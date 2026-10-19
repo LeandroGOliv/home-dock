@@ -1,8 +1,10 @@
 import logging
+import sys
+import threading
 
 import pytest
 
-from homedock.storage.logs import LOG_FILE, setup_logging
+from homedock.storage.logs import LOG_FILE, setup_logging, uncaught_exceptions_logged
 
 FAKE_LOCAL = "a1b2c3d4e5f6a7b8"
 DEVICE_ID = "bf0000000000000000aa"
@@ -78,3 +80,43 @@ def test_setting_up_twice_does_not_duplicate_lines(tmp_path, logger):
     logger.info("once")
     assert read_logs(tmp_path).count("once") == 1
     assert sum(isinstance(h, logging.FileHandler) for h in logger.handlers) == 1
+
+
+def test_uncaught_exceptions_are_logged_masked(tmp_path, logger):
+    log_filter = setup_logging(tmp_path, logger=logger)
+    log_filter.add(FAKE_LOCAL)
+    with uncaught_exceptions_logged(logger):
+        try:
+            raise ValueError(f"bad key {FAKE_LOCAL} at 192.0.2.10")
+        except ValueError:
+            sys.excepthook(*sys.exc_info())
+    text = read_logs(tmp_path)
+    assert "uncaught exception" in text
+    assert "ValueError" in text
+    assert FAKE_LOCAL not in text
+    assert "192.0.2.10" not in text
+
+
+def test_uncaught_exceptions_of_threads_are_logged_masked(tmp_path, logger):
+    log_filter = setup_logging(tmp_path, logger=logger)
+    log_filter.add(FAKE_LOCAL)
+
+    def fail():
+        raise RuntimeError(f"bad key {FAKE_LOCAL}")
+
+    with uncaught_exceptions_logged(logger):
+        thread = threading.Thread(target=fail, name="homedock-test")
+        thread.start()
+        thread.join()
+    text = read_logs(tmp_path)
+    assert "RuntimeError" in text
+    assert "homedock-test" in text
+    assert FAKE_LOCAL not in text
+
+
+def test_the_previous_exception_hooks_come_back(logger):
+    before = sys.excepthook, threading.excepthook
+    with uncaught_exceptions_logged(logger):
+        assert sys.excepthook is not before[0]
+        assert threading.excepthook is not before[1]
+    assert (sys.excepthook, threading.excepthook) == before

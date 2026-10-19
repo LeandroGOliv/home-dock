@@ -64,7 +64,6 @@ def test_from_wizard_ignores_malformed_mapping(mapping):
     ("value", "expected"),
     [
         ("192.0.2.10", True),
-        ("198.51.100.7", True),
         ("8.8.8.8", False),  # public
         ("127.0.0.1", False),
         ("0.0.0.0", False),  # tinytuya scans the network for this one

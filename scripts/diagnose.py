@@ -296,6 +296,8 @@ def connect(entry: dict[str, Any], timeout: float) -> tuple[Any, str, dict[str, 
     """Try the configured protocol version first, then the others."""
     import tinytuya  # imported lazily so the pure helpers stay importable without it
 
+    from homedock.devices.spec import is_lan_address
+
     # tinytuya DEBUG logs include the local key: never call tinytuya.set_debug() here.
     logging.getLogger("tinytuya").setLevel(logging.INFO)
 
@@ -304,11 +306,19 @@ def connect(entry: dict[str, Any], timeout: float) -> tuple[Any, str, dict[str, 
             "no IP in devices.json; use 'Find new bulbs' in HomeDock, or run "
             "`python -m tinytuya scan` at home inside %USERPROFILE%\\tuya-wizard"
         )
+    if not is_lan_address(entry["ip"]):
+        # e.g. "Auto" or "0.0.0.0": tinytuya would scan and read a devices.json from here.
+        raise DiagnosticError("the IP in devices.json is not a LAN address; use 'Find new bulbs'")
     configured = str(entry.get("version") or "")
     versions = [configured, *(v for v in PROTOCOL_VERSIONS if v != configured)]
     errors = []
     for version in filter(None, versions):
-        device = tinytuya.Device(entry["id"], entry["ip"], entry["key"], version=float(version))
+        try:
+            device = tinytuya.Device(entry["id"], entry["ip"], entry["key"], version=float(version))
+        except Exception as exc:  # e.g. a key tinytuya cannot encode
+            # The message may quote part of the local key: report only the type.
+            errors.append(f"v{version}: cannot open the connection ({type(exc).__name__})")
+            continue
         device.set_socketTimeout(timeout)
         device.set_socketRetryLimit(1)
         # A fresh connection per call returns the full status instead of queued partial pushes.

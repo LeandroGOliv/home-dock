@@ -15,7 +15,8 @@ and `docs/architecture.md` (sections UI and Core) first, and the mockups in `doc
   (`rgb_bulb`, `tuya`) and never mention DPS codes — `tests/test_architecture.py` guards it.
 - The UI works on generic devices: capabilities decide what is shown. A device type's
   panel is chosen through the panel registry, never by `isinstance` on a driver.
-- Every user-visible string is pt-BR and lives in `ui/strings.py` (no scattered literals).
+- Every user-visible string is read through `ui/strings.py` (no scattered literals) and
+  defined in both `ui/strings_pt_br.py` and `ui/strings_en.py`, same name and signature.
   Code, identifiers and comments are in English.
 
 ## Threads ↔ Qt

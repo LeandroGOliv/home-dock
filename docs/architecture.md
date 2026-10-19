@@ -288,14 +288,16 @@ written elsewhere is the start-with-Windows entry in the registry (below):
 Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py`,
 `icons.py`, `flyout.py`, `placement.py`, `target_model.py`, `selector.py`, `panels.py`,
 `bulb_panel.py`, `controls.py`, `scenes.py`, `manage.py`, `theme.py`, `system_theme.py`,
-`widgets.py`, `dial_math.py`, `dials.py`, `strings.py`. The UI may import `core`, `storage`,
+`widgets.py`, `dial_math.py`, `dials.py`, `strings.py` (with `strings_common.py`,
+`strings_pt_br.py`, `strings_en.py`). The UI may import `core`, `storage`,
 `masking` and the public `homedock.devices` API only (guarded by a test).
 
 - **Start-up** — `homedock` (`__main__` → `ui.app.run()`): takes the single-instance lock
   (a named Windows mutex, `Local\HomeDock.SingleInstance`; a second launch exits at once,
   before touching any file — also when the first one runs with other rights, e.g.
-  elevated, and the mutex cannot even be opened), starts following the Windows theme
-  (before any widget is built), runs the storage start-up, builds the `ControlService` over
+  elevated, and the mutex cannot even be opened), logs the UI language and installs Qt's
+  translation of its own texts for it, starts following the Windows theme (both before any
+  widget is built), runs the storage start-up, builds the `ControlService` over
   the imported devices and shows the tray. The app does not quit when a window closes;
   "Sair" quits, and the service is shut down on the way out. It persists what the flyout
   changes (`config.json`: last target, scenes, names, groups) and runs the device reload
@@ -537,7 +539,25 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
   The maths (`dial_math.py`, no Qt) are pure functions: compass angles, angle ↔ hue,
   angle ↔ temperature with the dead zone and the drag across it, positions on a conical gradient, HSV ↔ hex and
   colour blending. `scripts/dials_demo.py` shows both dials in a window (no device).
-- **Strings** — pt-BR, centralised in one module.
+- **Strings** — every text the user sees, in pt-BR or English: the **display language**
+  of Windows (`QLocale.system().uiLanguages()[0]`), not its regional format — Windows in
+  English with the region set to Brazil gets English. Any `pt-*` (pt-PT too) is pt-BR;
+  any other language is English, without a notice. Chosen when `strings` is first
+  imported, it never changes while the app runs; there is no manual choice.
+  - `strings.py` is a facade: UI code reads `strings.QUIT`, `strings.noun(...)`, … and
+    module `__getattr__` serves them from `strings_pt_br.py` or `strings_en.py`, which
+    define the same names and functions (plurals and the words per device type, `noun()`,
+    included; a test compares names and signatures). What is the same in every language —
+    `APP_NAME`, `SEPARATOR`, `Noun`, `percent()` — lives in `strings_common.py`; the
+    temperature thresholds of `temperature_label()` in the facade. `use(language)` switches
+    the texts (tests pin pt-BR in `conftest.py`, so they never depend on the machine).
+  - Qt's own texts (the context menu of a text field, standard buttons) are English
+    unless translated: for pt-BR, `install_qt_translation()` loads `qtbase_pt_BR.qm` from
+    `QLibraryInfo`'s translations folder through a `QTranslator`; a missing file is only
+    logged.
+  - Names the user gave (groups, scenes, devices) are never translated; the automatic
+    group's name ("Todas as lâmpadas" / "All bulbs") is worded when shown, never saved.
+    Logs stay in English, user docs in pt-BR.
 
 ## Packaging
 
@@ -553,6 +573,9 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
   file is named like local data (`devices.json`, `config.json`, wizard dumps, logs) or
   comes from `%APPDATA%\HomeDock` or `%USERPROFILE%\tuya-wizard`. The exe reads and
   writes its data under `%APPDATA%\HomeDock` like the sources do.
+- **Qt translations** — PyInstaller's Qt hooks bundle Qt's translations under
+  `PySide6\translations`, where `QLibraryInfo` finds them in the exe; the spec stops the
+  build if `qtbase_pt_BR.qm` would be missing (Qt's own texts would stay English).
 - **Excluded** — `tkinter` and the build tools PyInstaller's `setuptools` hook pulls in
   (`setuptools`, `pkg_resources`, `distutils`), unused at run time.
 - `build\` and `dist\` are git-ignored; CI does not build the exe.

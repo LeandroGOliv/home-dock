@@ -65,7 +65,7 @@ uv run pyinstaller packaging/HomeDock.spec                 # build dist\HomeDock
 - The control panel is chosen by device type/capabilities through a registry, so a new
   device type brings its own panel.
 - Do **not** implement air-conditioner support until its backlog issue is scheduled.
-- The UI wording is bulb-focused in v1 ("Todas as lâmpadas", "Lâmpadas"). Future device
+- The UI wording is bulb-focused in v1 ("Todas as lâmpadas" / "All bulbs"). Future device
   types will get their own tabs; the "all" automatic group is **per device type**.
 
 ## Security rules (mandatory)
@@ -135,9 +135,12 @@ model — never assume.
 
 - Code, identifiers, comments, docstrings, commit messages, PR titles and AI files
   (CLAUDE.md, `docs/architecture.md`, `.claude/agents/`) in **English**.
-- Everything the end user sees — UI strings, README, `docs/configuracao.md` — in
-  **pt-BR**. GitHub issue and PR bodies in pt-BR.
-- UI strings centralised in one module (no scattered literals).
+- UI strings in **pt-BR and English**, following the display language of Windows (any
+  `pt-*` → pt-BR, anything else → English). User docs — README, `docs/configuracao.md` —
+  in **pt-BR** only. GitHub issue and PR bodies in pt-BR. Logs in English.
+- UI strings centralised in the strings modules (no scattered literals): UI code reads
+  `homedock.ui.strings`, a facade over `strings_pt_br.py` and `strings_en.py`. Every new
+  text goes into **both** with the same name and signature (a test enforces it).
 - Type hints everywhere; small modules; dataclasses/enums for domain types.
 - ruff is the source of truth for style (line length 100).
 

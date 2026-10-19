@@ -8,7 +8,7 @@ from concurrent.futures import Future
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QEvent, QTimer
+from PySide6.QtCore import QCoreApplication, QEvent, QTimer
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QMenu
 
@@ -97,6 +97,26 @@ def test_main_writes_only_under_appdata_homedock(qapp, folders):
     assert all_files(appdata) == {"HomeDock/config.json", f"HomeDock/logs/{LOG_FILE}"}
     assert all_files(cwd) == set()
     assert all_files(home) == set()
+
+
+@pytest.mark.parametrize(
+    ("language", "select_all"),
+    [(strings.Language.PT_BR, "Selecionar tudo"), (strings.Language.EN, "Select All")],
+)
+def test_main_translates_qt_texts_into_the_ui_language(qapp, folders, language, select_all):
+    strings.use(language)
+    seen = []
+
+    def read_and_quit():
+        seen.append(QCoreApplication.translate("QLineEdit", "Select All"))
+        qapp.quit()
+
+    QTimer.singleShot(0, read_and_quit)
+    with safety_net(qapp):
+        assert main() == 0
+
+    assert seen == [select_all]
+    assert QCoreApplication.translate("QLineEdit", "Select All") == "Select All"  # removed
 
 
 def test_a_second_instance_exits_without_touching_anything(qapp, folders):

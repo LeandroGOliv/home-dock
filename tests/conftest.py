@@ -28,6 +28,34 @@ def isolated_appdata(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolated_secret_sources(tmp_path, monkeypatch):
+    """The pre-commit hook never reads the real wizard folder (or %APPDATA%) in tests."""
+    monkeypatch.setenv("HOMEDOCK_SECRET_SOURCES", str(tmp_path / "secret-sources"))
+
+
+@pytest.fixture(autouse=True)
+def network_attempts(monkeypatch):
+    """No test may reach the LAN: building a tinytuya device or scanning fails, and fails
+    the test at teardown. A test expecting it clears the list it gets."""
+    import tinytuya
+    from tinytuya import scanner
+
+    attempts: list[str] = []
+
+    def refuse(name: str):
+        def refused(*_args, **_kwargs):
+            attempts.append(name)
+            raise OSError(f"tests never use the network ({name})")
+
+        return refused
+
+    monkeypatch.setattr(tinytuya, "Device", refuse("tinytuya.Device"))
+    monkeypatch.setattr(scanner, "devices", refuse("tinytuya.scanner.devices"))
+    yield attempts
+    assert not attempts, f"a test tried to use the network: {attempts}"
+
+
+@pytest.fixture(autouse=True)
 def isolated_instance(monkeypatch):
     """Tests starting the app never collide with a HomeDock the developer is running."""
     monkeypatch.setattr("homedock.ui.app.INSTANCE_NAME", rf"Local\HomeDock.Test.{uuid.uuid4().hex}")

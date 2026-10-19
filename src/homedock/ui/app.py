@@ -177,6 +177,8 @@ def run(argv: Sequence[str] | None = None) -> int:
         app = QApplication.instance() or QApplication(list(argv or sys.argv))
         app.setApplicationName(strings.APP_NAME)
         app.setQuitOnLastWindowClosed(False)  # the flyout is not a main window
+        log.info("UI language: %s", strings.language)
+        translation = strings.install_qt_translation(app)  # before any widget, like the theme
         system_theme = SystemTheme(app)  # before any widget: they start in the right colours
         home = HomeDock(open_app_data())
         home.show()
@@ -185,4 +187,6 @@ def run(argv: Sequence[str] | None = None) -> int:
         finally:
             home.close()
             system_theme.stop()
+            if translation is not None:
+                app.removeTranslator(translation)
             log.info("HomeDock closed")

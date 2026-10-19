@@ -8,18 +8,21 @@ while it runs (tests pin one with :func:`use`).
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from enum import StrEnum
 from types import ModuleType
 from typing import Any
 
-from PySide6.QtCore import QLocale
+from PySide6.QtCore import QCoreApplication, QLibraryInfo, QLocale, QTranslator
 
 from homedock.ui import strings_en, strings_pt_br
 from homedock.ui.strings_common import APP_NAME as APP_NAME
 from homedock.ui.strings_common import SEPARATOR as SEPARATOR
 from homedock.ui.strings_common import Noun as Noun
 from homedock.ui.strings_common import percent as percent
+
+log = logging.getLogger(__name__)
 
 
 class Language(StrEnum):
@@ -28,6 +31,8 @@ class Language(StrEnum):
 
 
 _TEXTS = {Language.PT_BR: strings_pt_br, Language.EN: strings_en}
+# Qt's own texts (context menus, standard buttons) are English unless translated.
+_QT_TRANSLATIONS = {Language.PT_BR: "qtbase_pt_BR"}
 
 
 def language_for(ui_languages: Sequence[str]) -> Language:
@@ -53,6 +58,20 @@ def use(chosen: Language) -> None:
     """Serve the texts of ``chosen`` (the widgets built before keep their texts)."""
     global language, _texts
     language, _texts = chosen, _TEXTS[chosen]
+
+
+def install_qt_translation(app: QCoreApplication) -> QTranslator | None:
+    """Translate Qt's own texts into the language in use; ``None`` when they stay English
+    (or the translation is missing: only logged)."""
+    name = _QT_TRANSLATIONS.get(language)
+    if name is None:
+        return None
+    translator = QTranslator(app)
+    if not translator.load(name, QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)):
+        log.warning("Qt translation %s not found: Qt's own texts stay in English", name)
+        return None
+    app.installTranslator(translator)
+    return translator
 
 
 def temperature_label(temperature: int) -> str:

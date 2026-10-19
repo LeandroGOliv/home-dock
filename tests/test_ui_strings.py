@@ -2,6 +2,7 @@ import inspect
 from types import FunctionType, ModuleType
 
 import pytest
+from PySide6.QtCore import QCoreApplication
 
 from homedock.devices import DeviceType
 from homedock.ui import strings, strings_common, strings_en, strings_pt_br
@@ -113,3 +114,30 @@ def test_english_plurals():
     assert strings_en.scene_deleted("Scene 1") == "“Scene 1” deleted"
     assert strings_en.group_deleted("Office") == "“Office” deleted"
     assert strings_en.noun(None).everything == "All devices"
+
+
+@pytest.fixture
+def translated(qapp):
+    """Installs Qt's own translation for a language; removed again after the test."""
+    installed = []
+
+    def install(language: Language):
+        strings.use(language)
+        translator = strings.install_qt_translation(qapp)
+        if translator is not None:
+            installed.append(translator)
+        return translator
+
+    yield install
+    for translator in installed:
+        qapp.removeTranslator(translator)
+
+
+def test_qt_texts_follow_portuguese(translated):
+    assert translated(Language.PT_BR) is not None
+    assert QCoreApplication.translate("QLineEdit", "Select All") == "Selecionar tudo"
+
+
+def test_qt_texts_stay_in_english(translated):
+    assert translated(Language.EN) is None
+    assert QCoreApplication.translate("QLineEdit", "Select All") == "Select All"

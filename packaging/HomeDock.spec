@@ -84,6 +84,12 @@ leaked = [
 if leaked:
     raise SystemExit(f"refusing to bundle local data files: {sorted(leaked)}")
 
+# Qt's own texts in pt-BR (ui.strings.install_qt_translation): PyInstaller's Qt hooks
+# collect the translations next to the Qt libraries, where QLibraryInfo looks for them.
+QT_TRANSLATION = "qtbase_pt_BR.qm"
+if not any(Path(name).name == QT_TRANSLATION for name, _source, _kind in a.datas + a.binaries):
+    raise SystemExit(f"{QT_TRANSLATION} would not be bundled: Qt's texts would stay English")
+
 pyz = PYZ(a.pure)
 
 exe = EXE(

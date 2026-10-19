@@ -31,7 +31,8 @@ repos:
       - id: gitleaks
 
   # Tuya local keys have no recognisable pattern: compare against the real local values.
-  # Binary files too (screenshots, archives): the hook searches raw bytes.
+  # Binary files too: the hook searches their raw bytes (not text drawn in an image nor
+  # compressed data, so never commit screenshots or archives of the wizard outputs).
   - repo: local
     hooks:
       - id: block-tuya-secrets

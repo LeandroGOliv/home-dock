@@ -128,3 +128,54 @@ def test_every_wizard_output_is_a_source(secret_source, repo, dump, content, lea
     (secret_source / dump).write_text(json.dumps(content), encoding="utf-8")
     (repo / "leak.py").write_text(f"VALUE = '{leaked}'\n", encoding="utf-8")
     assert hook.main(["leak.py"]) == 1
+
+
+def test_file_named_after_a_secret_is_blocked(secret_source, repo):
+    (repo / f"{FAKE_ID}.txt").write_text("notes\n", encoding="utf-8")
+    assert hook.main([f"{FAKE_ID}.txt"]) == 1
+
+
+def test_unreadable_staged_file_is_not_passed_unchecked(secret_source, repo, capsys):
+    (repo / "unreadable").mkdir()  # reading it fails like a locked file would
+    assert hook.main(["unreadable"]) == 1
+    assert "not checked" in capsys.readouterr().err
+
+
+def test_numeric_location_is_loaded(secret_source, repo):
+    raw = {"result": [{"lat": -12.3456, "lon": -45.6789}]}
+    (secret_source / "tuya-raw.json").write_text(json.dumps(raw), encoding="utf-8")
+    (repo / "leak.py").write_text("WHERE = -45.6789\n", encoding="utf-8")
+    assert hook.main(["leak.py"]) == 1
+
+
+def test_secret_escaped_inside_json_is_blocked(secret_source, repo):
+    key = 'fake"Key\12345'
+    (secret_source / "devices.json").write_text(json.dumps([{"key": key}]), encoding="utf-8")
+    (repo / "dump.json").write_text(json.dumps({"key": key}), encoding="utf-8")
+    assert hook.main(["dump.json"]) == 1
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "devices (1).json",
+        "devices.json.bak",
+        "tinytuya (1).json",
+        "tinytuya.json.bak",
+        "tuya-raw (1).json",
+        "snapshot (1).json",
+        ".env",
+        ".env.local",
+    ],
+)
+def test_copies_of_wizard_files_and_env_files_are_blocked_by_name(secret_source, repo, name):
+    (repo / name).write_text("{}", encoding="utf-8")
+    assert hook.main([name]) == 1
+
+
+def test_unreadable_source_error_leaves_out_the_home_path(secret_source, repo, capsys):
+    (secret_source / "devices.json").write_text("[", encoding="utf-8")
+    assert hook.main([]) == 1
+    err = capsys.readouterr().err
+    assert "devices.json" in err
+    assert str(secret_source) not in err  # the full path holds the Windows user name

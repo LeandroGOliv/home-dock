@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from collections.abc import Iterable
 
 # Four dotted numbers, not part of a longer dotted number (a trailing "." is punctuation).
@@ -36,15 +37,19 @@ class RedactingFilter(logging.Filter):
     """Logging filter that masks known secrets and any IPv4 address in each record.
 
     Covers the formatted message, the exception text and the stack info. Attach it to a
-    handler so it also sees the records of third-party loggers.
+    handler so it also sees the records of third-party loggers. Secrets may be added from
+    any thread while others log.
     """
 
     def __init__(self) -> None:
         super().__init__()
-        self._secrets: set[str] = set()
+        self._secrets: frozenset[str] = frozenset()
+        self._lock = threading.Lock()
 
     def add(self, *secrets: object) -> None:
-        self._secrets.update(str(s) for s in secrets if s)
+        # Replaced, never changed in place: other threads may be iterating the current set.
+        with self._lock:
+            self._secrets = self._secrets | {str(s) for s in secrets if s}
 
     def redact(self, text: str) -> str:
         return IPV4.sub(lambda m: mask(m.group()), redact(text, self._secrets))

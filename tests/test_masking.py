@@ -3,6 +3,7 @@ import sys
 
 import pytest
 
+from homedock import masking
 from homedock.masking import RedactingFilter, mask, redact
 
 
@@ -100,3 +101,22 @@ def test_redacting_filter_ignores_longer_dotted_numbers():
 def test_redact_is_case_insensitive():
     assert redact("mac 00:00:00:AA:BB:20", ["00:00:00:aa:bb:20"]) == "mac 00…20"
     assert redact("id BF0000AA", ["bf0000aa"]) == "id BF…AA"
+
+
+def test_secrets_added_while_a_record_is_redacted_do_not_break_it(monkeypatch):
+    # The reload thread adds secrets while I/O workers log: simulate that interleaving.
+    log_filter = RedactingFilter()
+    log_filter.add("a1b2c3d4e5f6a7b8")
+    real_redact = masking.redact
+
+    def redact_while_adding(text, secrets):
+        for _ in secrets:
+            log_filter.add("bf0000000000000000aa")
+        return real_redact(text, secrets)
+
+    monkeypatch.setattr(masking, "redact", redact_while_adding)
+    record = make_record("key %s", ("a1b2c3d4e5f6a7b8",))
+
+    assert log_filter.filter(record) is True
+    assert record.getMessage() == "key a1…b8"
+    assert log_filter.redact("id bf0000000000000000aa") == "id bf…aa"

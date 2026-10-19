@@ -561,8 +561,13 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
 
 ## Packaging
 
-`packaging/HomeDock.spec` (PyInstaller) builds `dist\HomeDock.exe`: one file, windowed
+`packaging/HomeDock.spec` (PyInstaller) builds `dist\HomeDock\HomeDock.exe`: windowed
 (`console=False`), from `src/homedock/__main__.py`.
+
+- **One folder** — the exe loads its libraries from `_internal\` next to it. A one-file exe
+  unpacked ~75 MB into `%TEMP%` at every start, from a second (launcher) process: 1.6 s
+  to the tray icon instead of ~0.4 s (issue #35). The folder is copied whole; the exe
+  alone does not start.
 
 - **Icon** — the spec runs `scripts/make_icon.py`, which paints the tray bulb
   (`icons.bulb_pixmap`) at 16–256 px and writes them as PNG entries of an `.ico` in the
@@ -573,11 +578,20 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
   file is named like local data (`devices.json`, `config.json`, wizard dumps, logs) or
   comes from `%APPDATA%\HomeDock` or `%USERPROFILE%\tuya-wizard`. The exe reads and
   writes its data under `%APPDATA%\HomeDock` like the sources do.
-- **Qt translations** — PyInstaller's Qt hooks bundle Qt's translations under
-  `PySide6\translations`, where `QLibraryInfo` finds them in the exe; the spec stops the
-  build if `qtbase_pt_BR.qm` would be missing (Qt's own texts would stay English).
-- **Excluded** — `tkinter` and the build tools PyInstaller's `setuptools` hook pulls in
-  (`setuptools`, `pkg_resources`, `distutils`), unused at run time.
+- **Qt files** — PyInstaller's Qt hooks bundle every Qt plugin and translation next to the
+  Qt libraries; the spec keeps only what HomeDock loads (`QT_NEEDED`): the Windows
+  platform plugin, the Windows 11 style (the tray menu) and `qtbase_pt_BR.qm`, which
+  `QLibraryInfo` finds under `PySide6\translations`. No image format, icon engine, TLS or
+  OpenGL plugin (the widgets and icons are painted) and no software OpenGL
+  (`opengl32sw.dll`, 20 MB). The build stops if a needed file would be missing (without
+  the platform the app would not start; without the translation Qt's texts stay English).
+- **Excluded** — `tkinter`; the build tools PyInstaller's `setuptools` hook pulls in
+  (`setuptools`, `pkg_resources`, `distutils`); `PySide6.QtNetwork`, never imported; and
+  `requests`, tinytuya's cloud client (HomeDock never uses the cloud; tinytuya imports it
+  only if present). The bundle went from 118 MB to 72 MB.
+- **Performance** — `scripts/perf_probe.py` measures the exe (time to the tray icon,
+  memory, idle CPU, threads, sockets) and, in-process over fake bulbs, the opening of the
+  flyout, the paint events of the custom widgets and the writes a drag sends.
 - `build\` and `dist\` are git-ignored; CI does not build the exe.
 
 ## Resilience

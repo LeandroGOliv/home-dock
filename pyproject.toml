@@ -22,6 +22,7 @@ dev = [
     "ruff>=0.14",
     "pre-commit>=4.3",
     "pyinstaller>=6.16",
+    "psutil>=7.0",
 ]
 
 [build-system]

@@ -29,8 +29,8 @@ src/homedock/
   core/      control service, groups, scenes (generic devices only)
   storage/   config/persistence under %APPDATA%\HomeDock
   ui/        tray, flyout pages, per-type control panels, custom QPainter widgets
-scripts/     dev tooling (diagnostics, pre-commit hooks, exe icon)
-packaging/   PyInstaller spec of HomeDock.exe
+scripts/     dev tooling (diagnostics, performance probe, pre-commit hooks, exe icon)
+packaging/   PyInstaller spec of HomeDock.exe (one folder: dist\HomeDock\)
 tests/       pytest suite (no network, no real devices)
 ```
 
@@ -46,7 +46,9 @@ uv run pre-commit run --all-files                          # every hook
 uv run python scripts/diagnose.py --dry-run                # read real bulbs (no changes)
 uv run python scripts/diagnose.py --only 1 --tests power   # exercise one bulb (restores state)
 uv run python scripts/dials_demo.py                        # hue ring / CCT arc demo window
-uv run pyinstaller packaging/HomeDock.spec                 # build dist\HomeDock.exe
+uv run pyinstaller packaging/HomeDock.spec                 # build dist\HomeDock\HomeDock.exe
+uv run python scripts/perf_probe.py exe                    # start-up, RAM, idle CPU of the exe
+uv run python scripts/perf_probe.py flyout                 # also paint / drag (fake bulbs)
 ```
 
 ## Architecture rules (non-negotiable)

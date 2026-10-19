@@ -164,8 +164,10 @@ uv run ruff format .             # formatação
 
 ### Gerar o HomeDock.exe
 
-O `HomeDock.exe` é um arquivo único, sem janela de console, que roda em qualquer Windows
-10/11 **sem Python instalado**. Para gerá-lo:
+O `HomeDock.exe` não tem janela de console e roda em qualquer Windows 10/11 **sem Python
+instalado**. Ele vem numa **pasta** `HomeDock\`, junto com a subpasta `_internal\` (as
+bibliotecas que ele carrega): assim ele abre em menos de meio segundo, sem se descompactar
+numa pasta temporária a cada execução. Para gerá-lo:
 
 1. Na pasta do repositório, instale as dependências: `uv sync`.
 2. Gere o executável (leva um ou dois minutos):
@@ -174,22 +176,46 @@ O `HomeDock.exe` é um arquivo único, sem janela de console, que roda em qualqu
    uv run pyinstaller packaging/HomeDock.spec
    ```
 
-3. O executável fica em `dist\HomeDock.exe` (cerca de 45 MB), com o ícone de lâmpada e a
-   versão do HomeDock nas propriedades do arquivo (clique direito → Propriedades →
-   Detalhes). As pastas `build\` e `dist\` não vão para o Git.
-4. Copie o `HomeDock.exe` para uma pasta fixa, por exemplo
-   `%LOCALAPPDATA%\Programs\HomeDock\`, e abra-o de lá. Faça isso **antes** de marcar
-   **Iniciar com o Windows**: a inicialização aponta para o lugar onde o exe está.
+3. O resultado fica em `dist\HomeDock\` (cerca de 70 MB): o `HomeDock.exe`, com o ícone de
+   lâmpada e a versão do HomeDock nas propriedades do arquivo (clique direito →
+   Propriedades → Detalhes), e a pasta `_internal\`. As pastas `build\` e `dist\` não vão
+   para o Git.
+4. Copie a pasta `dist\HomeDock\` **inteira** para um lugar fixo, por exemplo
+   `%LOCALAPPDATA%\Programs\HomeDock\`, e abra o `HomeDock.exe` de lá. O exe sozinho, sem a
+   `_internal\` ao lado, não abre. Faça isso **antes** de marcar **Iniciar com o Windows**:
+   a inicialização aponta para o lugar onde o exe está.
 5. Na primeira vez, o Firewall do Windows pode pedir permissão para o HomeDock: permita em
    **redes privadas** (ele precisa ouvir a rede para achar as lâmpadas).
 
-O exe não leva nenhum dado seu: o `devices.json`, o `config.json` e os logs continuam em
-`%APPDATA%\HomeDock\`, e o build para com erro se algum desses arquivos fosse entrar no
-exe. Para conferir o que foi empacotado:
-`uv run pyi-archive_viewer --list --recursive dist\HomeDock.exe`.
+Para atualizar, saia do HomeDock (menu da bandeja → **Sair**), apague o conteúdo da pasta
+onde ele está e copie o de `dist\HomeDock\` no lugar. Mantendo a mesma pasta, o **Iniciar
+com o Windows** continua valendo.
 
-Ao abrir, o exe leva alguns segundos a mais que `uv run homedock` para mostrar o ícone
-(ele se descompacta numa pasta temporária a cada execução).
+O exe não leva nenhum dado seu: o `devices.json`, o `config.json` e os logs continuam em
+`%APPDATA%\HomeDock\`, e o build para com erro se algum desses arquivos fosse entrar na
+pasta. Para conferir o que foi empacotado, basta olhar `dist\HomeDock\_internal\`.
+
+A primeira abertura depois de gerar ou copiar a pasta é mais lenta (uns 2 segundos): o
+Windows (e o antivírus) ainda não leu esses arquivos.
+
+### Medir o desempenho
+
+`scripts/perf_probe.py` mede o que importa para o desempenho, sem mostrar chaves, IDs ou
+IPs:
+
+```powershell
+uv run python scripts/perf_probe.py exe --minutes 2   # partida, RAM, CPU, threads, sockets
+uv run python scripts/perf_probe.py flyout --profile  # abertura do painel (lâmpadas falsas)
+uv run python scripts/perf_probe.py paint             # custo de pintura dos controles
+uv run python scripts/perf_probe.py drag              # comandos enviados durante um arrasto
+```
+
+O `exe` abre o `dist\HomeDock\HomeDock.exe` algumas vezes (feche o seu HomeDock antes:
+só um roda por vez), mede o tempo até o ícone aparecer na bandeja e depois deixa o app
+parado na bandeja, medindo memória e CPU. Ele usa os seus dados em `%APPDATA%\HomeDock\`
+e lê o estado das lâmpadas reais ao abrir, sem enviar comandos; no fim, encerra o
+processo (o ícone pode ficar na bandeja até você passar o mouse sobre ele). Os outros
+rodam o painel dentro do próprio script, com lâmpadas falsas.
 
 ## Licença
 

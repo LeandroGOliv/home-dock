@@ -1,4 +1,5 @@
 import socket
+from dataclasses import replace
 from typing import ClassVar
 
 import pytest
@@ -10,6 +11,10 @@ from homedock.devices.spec import DeviceSpec
 from homedock.devices.tuya import TinyTuyaLink
 
 SPEC = DeviceSpec(id="dev-1", name="Sala", local_key="key-1", ip="192.0.2.10", version="3.4")
+# The real ones, saved before any fixture replaces them. Tests use them directly:
+# monkeypatch.undo() would also undo the suite's isolation (APPDATA, registry, network).
+REAL_DEVICE = tuya_module.tinytuya.Device
+REAL_HAS_UNREAD = tuya_module._has_unread
 
 
 class FakeTinyTuyaDevice:
@@ -269,25 +274,45 @@ def test_the_normal_timeout_is_back_after_reading_unread_messages():
         assert device.timeout == tuya_module.TIMEOUT
 
 
-def test_has_unread_sees_data_waiting_on_the_socket(monkeypatch):
-    monkeypatch.undo()  # the real check, on a local socket pair (no network)
+@pytest.mark.parametrize("ip", ["Auto", "0.0.0.0", "8.8.8.8", "127.0.0.1"])
+def test_an_address_outside_the_lan_is_never_contacted(ip):
+    # "Auto" and "0.0.0.0" make tinytuya scan, reading devices.json from the working folder.
+    link = TinyTuyaLink(replace(SPEC, ip=ip))
+    with pytest.raises(DeviceError, match="LAN"):
+        link.status()
+    assert FakeTinyTuyaDevice.instances == []
+
+
+def test_a_key_tinytuya_cannot_encode_stays_out_of_the_error(monkeypatch):
+    def reject(*args, **kwargs):
+        raise UnicodeEncodeError("latin-1", "k€y", 1, 2, "ordinal not in range(256)")
+
+    monkeypatch.setattr(tuya_module.tinytuya, "Device", reject)
+    with pytest.raises(DeviceError) as caught:
+        TinyTuyaLink(SPEC).status()
+    assert str(caught.value) == "cannot open the connection (UnicodeEncodeError)"
+    assert caught.value.__suppress_context__
+
+
+def test_has_unread_sees_data_waiting_on_the_socket():
+    # The real check, on a local socket pair (no network).
     ours, theirs = socket.socketpair()
     try:
         device = type("Device", (), {"socket": ours})()
-        assert not tuya_module._has_unread(device)
+        assert not REAL_HAS_UNREAD(device)
         theirs.sendall(b"push")
-        assert tuya_module._has_unread(device)
+        assert REAL_HAS_UNREAD(device)
         device.socket = None
-        assert not tuya_module._has_unread(device)
+        assert not REAL_HAS_UNREAD(device)
     finally:
         ours.close()
         theirs.close()
-    assert not tuya_module._has_unread(type("Device", (), {"socket": ours})())  # closed
+    assert not REAL_HAS_UNREAD(type("Device", (), {"socket": ours})())  # closed
 
 
-def test_tinytuya_devices_have_the_socket_and_receive_we_rely_on(monkeypatch):
-    monkeypatch.undo()
-    device = tuya_module.tinytuya.Device("dev-1", "192.0.2.10", "0123456789abcdef", version=3.4)
+def test_tinytuya_devices_have_the_socket_and_receive_we_rely_on():
+    # Building one with a valid IP and version 3.4 does not touch the network.
+    device = REAL_DEVICE("dev-1", "192.0.2.10", "0123456789abcdef", version=3.4)
     assert hasattr(device, "socket")
     assert callable(device.receive)
 

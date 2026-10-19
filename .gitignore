@@ -1,20 +1,28 @@
 # --- Secrets & local device data (NEVER commit) ---
 # tinytuya wizard outputs: local keys, device IDs, IPs, cloud credentials
-devices.json
-tuya-raw.json
-snapshot.json
-tinytuya.json
+# (and copies of them: "devices (1).json", "tinytuya.json.bak")
+devices*.json
+devices.json.*
+tuya-raw*.json
+tuya-raw.json.*
+snapshot*.json
+snapshot.json.*
+tinytuya*.json
+tinytuya.json.*
 # only the fictitious example is allowed
 !devices.example.json
 # environment files
 .env
 .env.*
-# local app config, if ever mirrored into the project
+# local app config, if ever mirrored into the project (device IDs, user names)
 /HomeDock/
 /homedock-data/
+config.json
+*.corrupt-*.json
 config.local.*
-# logs
+# logs, including rotated ones (homedock.log.1)
 *.log
+*.log.*
 logs/
 
 # --- Python ---
@@ -45,3 +53,4 @@ desktop.ini
 
 # --- Claude Code local state ---
 .claude/settings.local.json
+CLAUDE.local.md

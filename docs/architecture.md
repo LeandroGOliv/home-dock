@@ -105,8 +105,9 @@ transport), `rgb_bulb.py` (bulb driver, the only place with bulb DPS), `registry
   per Tuya device whose UDP broadcast arrived in time (ports 6666/6667/7000, tinytuya's
   scanner). It **never connects** to a device (`poll=False`, no TCP connection: the bulbs
   accept one client, which the control service may hold); it listens, and tinytuya sends
-  its discovery request now and then. Only valid IPv4 addresses are kept (the broadcasts
-  are unauthenticated and the IPs go into `devices.json`). tinytuya loads a `devices.json` from the
+  its discovery request now and then. Only private unicast IPv4 addresses are kept
+  (`is_lan_address`: the broadcasts are unauthenticated and the IPs go into
+  `devices.json`). tinytuya loads a `devices.json` from the
   working directory when given no devices, so it gets a placeholder list. A scan that
   cannot run (e.g. a port taken) raises `DeviceError` without the library message; the
   `FoundDevice` repr hides the ID and IP. Blocks: callers run it off the UI thread.
@@ -270,8 +271,12 @@ written elsewhere is the start-with-Windows entry in the registry (below):
   root logger so library logs are covered too (calling `setup_logging()` again replaces
   the handler). A `RedactingFilter` on the handler masks the secrets imported from
   `devices.json` (ignoring letter case) and **any IPv4 address** in the message, the
-  exception text and the stack info. Load errors log only the error type, never values
-  read from the files.
+  exception text and the stack info. Secrets may be added from any thread while others
+  log (the set is replaced, never changed in place). Load errors log only the error type,
+  never values read from the files. While the app runs, `uncaught_exceptions_logged()`
+  sends uncaught exceptions of threads and of Qt slots to the log, so they pass the filter
+  instead of going to stderr; `run()` logs a crash of its own the same way and exits with
+  1, and the exe is built with `disable_windowed_traceback` (no raw traceback dialog).
 - **Start-up** — `open_app_data()` sets up the logs, imports the devices (registering
   their secrets in the log filter), loads the config and writes the default `config.json`
   when there is none. `AppData.save(config)` persists changes. The UI start-up
@@ -607,8 +612,14 @@ Modules so far: `app.py` (start-up), `single_instance.py`, `bridge.py`, `tray.py
   device is probed at once at its new address. README recommends DHCP reservations.
 - **Trust:** the IPs come from unauthenticated UDP broadcasts, and now go into
   `devices.json` without the user. A host on the LAN forging them can only point a device
-  at a wrong address (it stays offline until the next scan): the local key never leaves
-  the PC and the session negotiation fails without it.
+  at a wrong address on the LAN (it stays offline until the next scan): the local key
+  never leaves the PC and the session negotiation fails without it. Only private unicast
+  IPv4 addresses are accepted, from a scan or from `devices.json` (`TinyTuyaLink` refuses
+  any other before building the tinytuya device): a public address would send the
+  handshake off the LAN, and `Auto` or `0.0.0.0` would make tinytuya scan on its own and
+  read a `devices.json` from the working directory. Private is not the same as "on this
+  subnet": a forged private address of another network still goes to the router, which
+  is accepted because the forger must already be on the LAN.
 - **Known limits:** if two devices swap IPs, each probe reaches the other device (the
   negotiation fails) until a scan runs: after 3 failures, or up to 5 min later when a
   scan ran just before. A bulb powered off for good costs one 18 s passive scan every

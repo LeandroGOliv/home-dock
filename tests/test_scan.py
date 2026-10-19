@@ -56,6 +56,12 @@ def test_entries_with_an_invalid_ip_are_skipped(ip):
     assert scan_lan(scanner=FakeScanner({"fakedevice00000004": {"ip": ip}})) == []
 
 
+@pytest.mark.parametrize("ip", ["8.8.8.8", "127.0.0.1", "0.0.0.0", "255.255.255.255"])
+def test_entries_outside_the_lan_are_skipped(ip):
+    # A forged broadcast must not send the device's connection (and handshake) off the LAN.
+    assert scan_lan(scanner=FakeScanner({"fakedevice00000005": {"ip": ip}})) == []
+
+
 def test_no_reply_means_no_devices():
     assert scan_lan(scanner=FakeScanner(None)) == []
 

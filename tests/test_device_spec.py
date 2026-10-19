@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from homedock.devices.spec import DeviceSpec
+from homedock.devices.spec import DeviceSpec, is_lan_address
 
 EXAMPLE = Path(__file__).parents[1] / "devices.example.json"
 
@@ -58,3 +58,23 @@ def test_repr_never_shows_key_id_or_ip():
 def test_from_wizard_ignores_malformed_mapping(mapping):
     spec = DeviceSpec.from_wizard({"id": "dev-1", "key": "key-1", "mapping": mapping})
     assert spec.dps_codes == {}
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("192.0.2.10", True),
+        ("8.8.8.8", False),  # public
+        ("127.0.0.1", False),
+        ("0.0.0.0", False),  # tinytuya scans the network for this one
+        ("255.255.255.255", False),
+        ("224.0.0.251", False),
+        ("169.254.0.9", False),
+        ("Auto", False),  # tinytuya scans the network for this one
+        ("192.0.2.10:6668", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_only_private_unicast_ipv4_is_a_lan_address(value, expected):
+    assert is_lan_address(value) is expected

@@ -141,9 +141,11 @@ Os arquivos gerados pelo wizard contêm **segredos**:
 |---|---|
 | `devices.json` | IDs, local keys e IPs dos dispositivos |
 | `tinytuya.json` | Access ID / Access Secret da sua conta de desenvolvedor Tuya |
-| `tuya-raw.json`, `snapshot.json` | dumps completos da conta e da rede |
+| `tuya-raw.json`, `snapshot.json` | dumps completos da conta e da rede (inclusive a localização da casa) |
 
 - **Nunca** coloque esses arquivos dentro da pasta do repositório nem os publique.
+- **Nunca** cole nem tire print da saída do wizard ou do `tinytuya scan` (em issues, PRs,
+  fóruns ou chats): a tela mostra o Access Secret, as local keys, os IDs e os IPs.
 - O HomeDock guarda dados **apenas** em `%APPDATA%\HomeDock\`.
 - O repositório só contém o [`devices.example.json`](devices.example.json), com valores
   fictícios.

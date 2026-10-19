@@ -82,10 +82,13 @@ device IDs, IPs of the home network, wizard dumps, logs, local configs.
   them (e.g. `ab…ef`). Device IDs and IPs are also masked in logs.
 - The app writes data **only** to `%APPDATA%\HomeDock\`, never to the repo folder. The
   one exception is its own `HomeDock` value under `HKCU\…\CurrentVersion\Run` ("Iniciar
-  com o Windows"); tests use an in-memory registry, never the real `Run` key.
+  com o Windows"), plus clearing its Task Manager flag under
+  `…\Explorer\StartupApproved\Run`; tests use an in-memory registry, never the real keys.
 - `HomeDock.exe` bundles code only — never `devices.json`, `config.json`, logs or wizard
   files (the spec refuses to build otherwise).
-- Tests never use real devices or real secrets; use fakes and fictitious values.
+- Tests never use real devices or real secrets; use fakes and fictitious values. The
+  conftest refuses tinytuya devices and LAN scans and isolates `%APPDATA%`, the registry
+  and the hook's secret sources: never call `monkeypatch.undo()` (it undoes all of that).
 - Before every commit run `git status` and inspect the staged file list. Never use
   `git add -A`/`git add .` blindly. Never bypass hooks (`--no-verify`).
 - `block-tuya-secrets` compares staged files with the real local values; gitleaks covers
@@ -128,6 +131,9 @@ model — never assume.
   also sends its discovery request) with `poll=False`: it **never connects** to a device,
   whose single TCP connection the control service may hold. Both PSBAM bulbs broadcast
   protocol 3.4 and are found within ~8 s (verified 2026-10-18, issue #12).
+- A device IP must be a private unicast IPv4 (`is_lan_address`): the scan drops any other
+  and `TinyTuyaLink` refuses it (broadcasts are unauthenticated; `Auto`/`0.0.0.0` would
+  make tinytuya scan and read a `devices.json` from the working folder) — issue #36.
 - Device I/O never blocks the UI thread (workers/threads). Group commands run **in
   parallel**. Slider and ring drags are debounced/throttled.
 - Read the real device state when the flyout opens. Offline / IP change → show status and
@@ -153,6 +159,9 @@ model — never assume.
 - Widget math (angle ↔ hue/temperature, HSV ↔ hex) as pure functions with unit tests.
 - UI: `pytest-qt` only where it pays off (e.g. dragging a marker emits the right value).
 - Real hardware: only the diagnostics script and the manual validation step of each issue.
+- Fixture IPs come from 192.0.2.0/24, which the code accepts as a LAN range (like Python's
+  `is_private`); well-known special addresses (8.8.8.8, 127.0.0.1, 0.0.0.0…) only appear
+  in tests checking that they are refused.
 
 ## Workflow
 
@@ -175,7 +184,7 @@ Project subagents live in `.claude/agents/`:
 
 - `test-engineer` — designs/writes/reviews tests, drives TDD on the core.
 - `security-auditor` — audits the diff before a PR for secrets, unsafe logging, staged
-  sensitive files.
+  sensitive files; also holds the full (a)–(e) audit checklist to run before a release.
 
 Each issue has a "Agentes sugeridos" section; a new agent proposed there is created as
 part of that issue.

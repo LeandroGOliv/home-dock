@@ -11,7 +11,7 @@ from typing import Any, Protocol
 import tinytuya
 
 from homedock.devices.base import DeviceError
-from homedock.devices.spec import DeviceSpec
+from homedock.devices.spec import DeviceSpec, is_lan_address
 
 DEFAULT_PROTOCOL_VERSION = "3.4"
 # 3.2 is left out: tinytuya's constructor goes to the network to probe it.
@@ -106,15 +106,21 @@ class TinyTuyaLink:
         if self._device is None:
             if not self._spec.ip:
                 raise DeviceError("device has no IP address; a network scan is needed")
+            if not is_lan_address(self._spec.ip):
+                raise DeviceError("device IP is not a LAN address; a network scan is needed")
             version = SUPPORTED_VERSIONS.get(self._spec.version or DEFAULT_PROTOCOL_VERSION)
             if version is None:
                 raise DeviceError(f"unsupported protocol version {self._spec.version!r}")
-            device = tinytuya.Device(
-                self._spec.id, self._spec.ip, self._spec.local_key, version=version
-            )
-            device.set_socketTimeout(self._timeout)
-            device.set_socketRetryLimit(self._retries)
-            device.set_socketPersistent(True)
+            try:
+                device = tinytuya.Device(
+                    self._spec.id, self._spec.ip, self._spec.local_key, version=version
+                )
+                device.set_socketTimeout(self._timeout)
+                device.set_socketRetryLimit(self._retries)
+                device.set_socketPersistent(True)
+            except Exception as exc:  # library boundary: e.g. a key tinytuya cannot encode
+                # The message may quote part of the local key: report only the type.
+                raise DeviceError(f"cannot open the connection ({type(exc).__name__})") from None
             self._device = device
         return self._device
 

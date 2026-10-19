@@ -2,11 +2,31 @@
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from homedock.masking import mask
+
+
+def is_lan_address(value: object) -> bool:
+    """Whether ``value`` is a private unicast IPv4 address, the only kind a device may have.
+
+    Device IPs come from unauthenticated broadcasts and hand-edited files. Anything else
+    (public, loopback, broadcast, ``Auto``…) would send the connection off the LAN or make
+    tinytuya scan the network on its own.
+    """
+    try:
+        address = ipaddress.IPv4Address(str(value))
+    except ValueError:
+        return False
+    return address.is_private and not (
+        address.is_loopback
+        or address.is_unspecified
+        or address.is_link_local
+        or address.is_reserved
+    )
 
 
 @dataclass(frozen=True, repr=False)

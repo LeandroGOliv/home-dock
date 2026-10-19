@@ -178,3 +178,31 @@ def test_status_that_stays_partial_raises():
 
     with pytest.raises(DiagnosticError, match="partial status"):
         session_for(PartialBulb()).read()
+
+
+def test_missing_ip_hint_keeps_the_scan_out_of_the_repo():
+    # `tinytuya scan` writes snapshot.json (IDs, IPs) into the folder it runs in.
+    with pytest.raises(DiagnosticError, match=r"tuya-wizard"):
+        diagnose.connect({"id": "bf1a2b3c4d5e6f7a8b9c", "key": "fake", "ip": ""}, timeout=1)
+
+
+@pytest.mark.parametrize("ip", ["Auto", "0.0.0.0", "8.8.8.8"])
+def test_an_address_outside_the_lan_is_never_contacted(ip, network_attempts):
+    # "Auto" and "0.0.0.0" make tinytuya scan and read devices.json from the repo root.
+    with pytest.raises(DiagnosticError, match="LAN"):
+        diagnose.connect({"id": "bf1a2b3c4d5e6f7a8b9c", "key": "fake", "ip": ip}, timeout=1)
+    assert network_attempts == []
+
+
+def test_a_key_tinytuya_cannot_encode_stays_out_of_the_error(monkeypatch):
+    import tinytuya
+
+    def reject(*args, **kwargs):
+        raise UnicodeEncodeError("latin-1", "k€y", 1, 2, "ordinal not in range(256)")
+
+    monkeypatch.setattr(tinytuya, "Device", reject)
+    entry = {"id": "bf1a2b3c4d5e6f7a8b9c", "key": "k€y", "ip": "192.0.2.10", "version": "3.4"}
+    with pytest.raises(DiagnosticError) as caught:
+        diagnose.connect(entry, timeout=1)
+    assert "cannot open the connection (UnicodeEncodeError)" in str(caught.value)
+    assert "€" not in str(caught.value)

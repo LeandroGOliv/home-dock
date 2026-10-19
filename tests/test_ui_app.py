@@ -99,6 +99,43 @@ def test_main_writes_only_under_appdata_homedock(qapp, folders):
     assert all_files(home) == set()
 
 
+def test_main_logs_exceptions_of_qt_slots_masked(qapp, folders):
+    # Printed to stderr they would skip the masking filter (and the exe has no console).
+    appdata, _, _ = folders
+
+    def fail():
+        raise ValueError("slot failed at 192.0.2.10")
+
+    QTimer.singleShot(0, fail)
+    QTimer.singleShot(0, qapp.quit)
+
+    assert main() == 0
+
+    text = (appdata / "HomeDock" / "logs" / LOG_FILE).read_text(encoding="utf-8")
+    assert "uncaught exception" in text
+    assert "ValueError: slot failed at 19…10" in text
+
+
+def test_main_logs_a_crash_masked_and_exits_with_an_error(qapp, folders, monkeypatch, capsys):
+    # Raised out of main(), it would be printed raw, or shown in the exe's error dialog.
+    appdata, _, _ = folders
+    close = app_module.HomeDock.close
+
+    def close_then_fail(self):
+        close(self)
+        raise RuntimeError("cannot close at 192.0.2.10")
+
+    monkeypatch.setattr(app_module.HomeDock, "close", close_then_fail)
+    QTimer.singleShot(0, qapp.quit)
+
+    assert main() == 1
+
+    text = (appdata / "HomeDock" / "logs" / LOG_FILE).read_text(encoding="utf-8")
+    assert "HomeDock crashed" in text
+    assert "RuntimeError: cannot close at 19…10" in text
+    assert "192.0.2.10" not in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     ("language", "select_all"),
     [(strings.Language.PT_BR, "Selecionar tudo"), (strings.Language.EN, "Select All")],

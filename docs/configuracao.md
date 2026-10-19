@@ -74,6 +74,9 @@ Se o Windows perguntar sobre o firewall, permita o Python em **redes privadas**.
 O wizard cria na pasta `tuya-wizard` os arquivos `devices.json`, `tinytuya.json`,
 `tuya-raw.json` e `snapshot.json`.
 
+> **Atenção:** a saída do wizard na tela mostra o Access Secret e as local keys de todos os
+> dispositivos. Não a copie para lugar nenhum e não tire print dela.
+
 ## 5. Importar no HomeDock
 
 1. Copie `%USERPROFILE%\tuya-wizard\devices.json` para `%APPDATA%\HomeDock\devices.json`
@@ -110,6 +113,9 @@ dispositivo fica vazio. Opções, quando estiver em casa:
 - **Manual:** em `%USERPROFILE%\tuya-wizard`, rode
   `uv run --no-project --with tinytuya python -m tinytuya scan`, que lista o IP e o ID de
   cada dispositivo encontrado, e preencha o campo `ip` correspondente no `devices.json`.
+  Rode sempre nessa pasta: o scan grava um `snapshot.json` onde for executado, e a saída
+  dele (IDs, IPs e as local keys, quando há um `devices.json` na pasta) não deve ser
+  publicada.
 
 ### Recomendação: IP fixo
 
@@ -158,7 +164,9 @@ do celular (nas configurações do dispositivo, opções como *memória ao desli
 - **Iniciar com o Windows** não fica no `config.json`: é a entrada `HomeDock` em
   `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` (a lista de
   programas que o Windows abre quando você entra), a única coisa que o HomeDock grava
-  fora desta pasta. Desmarcar a opção remove a entrada.
+  fora desta pasta. Desmarcar a opção remove a entrada. Marcar ou desmarcar também apaga
+  a marca de "desativado" que o Gerenciador de Tarefas guarda para o HomeDock em
+  `...\Explorer\StartupApproved\Run`.
 - O `config.json` é sempre gravado de forma segura (arquivo temporário + troca), então
   uma queda de energia durante a gravação não deixa o arquivo pela metade.
 - Se o `config.json` estiver corrompido ou ilegível, o HomeDock **não fecha**: ele renomeia
@@ -168,6 +176,10 @@ do celular (nas configurações do dispositivo, opções como *memória ao desli
   aparecem mascarados (ex.: `bf…9c`, `19…10`). Mesmo assim, prefira não publicar logs.
 
 ## Problemas comuns
+
+Ao pedir ajuda (por exemplo, numa issue), descreva o sintoma e as mensagens com IDs e IPs
+mascarados. Nunca cole a saída do wizard ou do scan, o `devices.json`, o `config.json` ou
+logs inteiros.
 
 | Sintoma | O que verificar |
 |---|---|

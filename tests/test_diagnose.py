@@ -178,3 +178,9 @@ def test_status_that_stays_partial_raises():
 
     with pytest.raises(DiagnosticError, match="partial status"):
         session_for(PartialBulb()).read()
+
+
+def test_missing_ip_hint_keeps_the_scan_out_of_the_repo():
+    # `tinytuya scan` writes snapshot.json (IDs, IPs) into the folder it runs in.
+    with pytest.raises(DiagnosticError, match=r"tuya-wizard"):
+        diagnose.connect({"id": "bf1a2b3c4d5e6f7a8b9c", "key": "fake", "ip": ""}, timeout=1)

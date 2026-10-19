@@ -300,7 +300,10 @@ def connect(entry: dict[str, Any], timeout: float) -> tuple[Any, str, dict[str, 
     logging.getLogger("tinytuya").setLevel(logging.INFO)
 
     if not entry.get("ip"):
-        raise DiagnosticError("no IP in devices.json; run `python -m tinytuya scan` at home")
+        raise DiagnosticError(
+            "no IP in devices.json; use 'Find new bulbs' in HomeDock, or run "
+            "`python -m tinytuya scan` at home inside %USERPROFILE%\\tuya-wizard"
+        )
     configured = str(entry.get("version") or "")
     versions = [configured, *(v for v in PROTOCOL_VERSIONS if v != configured)]
     errors = []

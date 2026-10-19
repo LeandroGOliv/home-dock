@@ -52,10 +52,11 @@ def setup_logging(
 
 @contextmanager
 def uncaught_exceptions_logged(logger: logging.Logger | None = None) -> Iterator[None]:
-    """While active, log uncaught exceptions of any thread (and of Qt slots) to ``logger``.
+    """While active, log uncaught exceptions of threads and of Qt slots to ``logger``.
 
     Python prints them to stderr otherwise, past the masking filter, and the windowed exe
-    has no console. The previous hooks come back on exit.
+    has no console. The previous hooks come back on exit, before an exception leaving the
+    ``with`` block would be reported: the caller logs that one itself.
     """
     target = logger or logging.getLogger("homedock")
     previous_hook, previous_thread_hook = sys.excepthook, threading.excepthook

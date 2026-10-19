@@ -274,8 +274,9 @@ written elsewhere is the start-with-Windows entry in the registry (below):
   exception text and the stack info. Secrets may be added from any thread while others
   log (the set is replaced, never changed in place). Load errors log only the error type,
   never values read from the files. While the app runs, `uncaught_exceptions_logged()`
-  sends uncaught exceptions of any thread and of Qt slots to the log, so they pass the
-  filter instead of going to stderr.
+  sends uncaught exceptions of threads and of Qt slots to the log, so they pass the filter
+  instead of going to stderr; `run()` logs a crash of its own the same way and exits with
+  1, and the exe is built with `disable_windowed_traceback` (no raw traceback dialog).
 - **Start-up** — `open_app_data()` sets up the logs, imports the devices (registering
   their secrets in the log filter), loads the config and writes the default `config.json`
   when there is none. `AppData.save(config)` persists changes. The UI start-up

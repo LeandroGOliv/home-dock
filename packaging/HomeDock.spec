@@ -138,6 +138,9 @@ exe = EXE(
     icon=str(ICON),
     version=VERSION,
     console=False,
+    # A crash never shows its raw traceback in a dialog (users screenshot those into issues):
+    # the app logs it masked instead.
+    disable_windowed_traceback=True,
     upx=False,
 )
 

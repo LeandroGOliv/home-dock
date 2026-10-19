@@ -116,6 +116,26 @@ def test_main_logs_exceptions_of_qt_slots_masked(qapp, folders):
     assert "ValueError: slot failed at 19…10" in text
 
 
+def test_main_logs_a_crash_masked_and_exits_with_an_error(qapp, folders, monkeypatch, capsys):
+    # Raised out of main(), it would be printed raw, or shown in the exe's error dialog.
+    appdata, _, _ = folders
+    close = app_module.HomeDock.close
+
+    def close_then_fail(self):
+        close(self)
+        raise RuntimeError("cannot close at 192.0.2.10")
+
+    monkeypatch.setattr(app_module.HomeDock, "close", close_then_fail)
+    QTimer.singleShot(0, qapp.quit)
+
+    assert main() == 1
+
+    text = (appdata / "HomeDock" / "logs" / LOG_FILE).read_text(encoding="utf-8")
+    assert "HomeDock crashed" in text
+    assert "RuntimeError: cannot close at 19…10" in text
+    assert "192.0.2.10" not in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     ("language", "select_all"),
     [(strings.Language.PT_BR, "Selecionar tudo"), (strings.Language.EN, "Select All")],

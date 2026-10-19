@@ -4,6 +4,23 @@ import uuid
 import pytest
 
 
+def pytest_configure(config):
+    """The tests check pt-BR texts, also at collection: never the language of the machine."""
+    from homedock.ui import strings
+
+    strings.use(strings.Language.PT_BR)
+
+
+@pytest.fixture(autouse=True)
+def restore_language():
+    """Undo a UI language chosen by a test."""
+    from homedock.ui import strings
+
+    language = strings.language
+    yield
+    strings.use(language)
+
+
 @pytest.fixture(autouse=True)
 def isolated_appdata(tmp_path, monkeypatch):
     """No test may touch the real %APPDATA%: point it at a temporary folder."""

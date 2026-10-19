@@ -1,4 +1,5 @@
 import socket
+from dataclasses import replace
 from typing import ClassVar
 
 import pytest
@@ -267,6 +268,26 @@ def test_the_normal_timeout_is_back_after_reading_unread_messages():
         FakeTinyTuyaDevice.responses = [{"dps": {}}]
         link.status()
         assert device.timeout == tuya_module.TIMEOUT
+
+
+@pytest.mark.parametrize("ip", ["Auto", "0.0.0.0", "8.8.8.8", "127.0.0.1"])
+def test_an_address_outside_the_lan_is_never_contacted(ip):
+    # "Auto" and "0.0.0.0" make tinytuya scan, reading devices.json from the working folder.
+    link = TinyTuyaLink(replace(SPEC, ip=ip))
+    with pytest.raises(DeviceError, match="LAN"):
+        link.status()
+    assert FakeTinyTuyaDevice.instances == []
+
+
+def test_a_key_tinytuya_cannot_encode_stays_out_of_the_error(monkeypatch):
+    def reject(*args, **kwargs):
+        raise UnicodeEncodeError("latin-1", "k€y", 1, 2, "ordinal not in range(256)")
+
+    monkeypatch.setattr(tuya_module.tinytuya, "Device", reject)
+    with pytest.raises(DeviceError) as caught:
+        TinyTuyaLink(SPEC).status()
+    assert str(caught.value) == "cannot open the connection (UnicodeEncodeError)"
+    assert caught.value.__suppress_context__
 
 
 def test_has_unread_sees_data_waiting_on_the_socket(monkeypatch):
